@@ -1,0 +1,13 @@
+# Пример файла для локальной разработки
+# Скопируйте в docker-compose.override.yml и настройте под себя
+
+version: '3.8'
+
+services:
+  bot:
+    volumes:
+      - ./credentials.json:/app/credentials.json:ro
+      - ./.env:/app/.env:ro
+      - ./:/app  # Для разработки - монтируем код
+    command: python main.py  # Переопределяем команду если нужно
+
