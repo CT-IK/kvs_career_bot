@@ -1,13 +1,13 @@
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BufferedInputFile
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BufferedInputFile, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select, func, distinct
 from database.models import User, Vacancy
 from database.db import async_session_maker
 from config import FACULTIES
-from services.image_generator import generate_vacancy_card
+from services.image_generator import get_cached_or_generate
 
 router = Router()
 
@@ -86,10 +86,7 @@ def get_vacancy_keyboard(vacancy_id: int, current_index: int, total: int, filter
     
     keyboard.append(nav_buttons)
     
-    # Кнопка "Скачать картинку"
-    keyboard.append([InlineKeyboardButton(text="📸 Скачать картинку", callback_data=f"img_{vacancy_id}")])
-    
-    # Третья строка - действия
+    # Вторая строка - действия
     action_buttons = []
     if filter_type == "sphere" and sphere:
         action_buttons.append(InlineKeyboardButton(text="📂 К сферам", callback_data="vacancies_by_sphere"))
@@ -99,8 +96,46 @@ def get_vacancy_keyboard(vacancy_id: int, current_index: int, total: int, filter
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
+def format_vacancy_caption(vacancy: Vacancy) -> str:
+    """Форматирование вакансии для caption под картинкой (до 1024 символов)"""
+    sphere_emoji = SPHERE_EMOJI.get(vacancy.sphere, "💼")
+    
+    # Компактный формат для caption
+    lines = [
+        f"🏢 <b>{vacancy.organization}</b>",
+        f"📌 <b>{vacancy.position}</b>",
+        ""
+    ]
+    
+    # Основная информация
+    if vacancy.sphere:
+        lines.append(f"{sphere_emoji} {vacancy.sphere}")
+    if vacancy.salary:
+        lines.append(f"💵 {vacancy.salary}")
+    if vacancy.schedule:
+        lines.append(f"⏰ {vacancy.schedule}")
+    if vacancy.work_format:
+        lines.append(f"📍 {vacancy.work_format}")
+    
+    # Контакты если есть
+    if vacancy.contact_person:
+        lines.append(f"\n👤 {vacancy.contact_person}")
+    if vacancy.contact_telegram:
+        lines.append(f"📱 {vacancy.contact_telegram}")
+    if vacancy.contact_email:
+        lines.append(f"📧 {vacancy.contact_email}")
+    
+    text = "\n".join(lines)
+    
+    # Обрезаем если слишком длинный (лимит Telegram 1024)
+    if len(text) > 1000:
+        text = text[:997] + "..."
+    
+    return text
+
+
 def format_vacancy(vacancy: Vacancy, show_match: bool = False, user_faculty: str = None) -> str:
-    """Форматирование вакансии для отображения"""
+    """Форматирование вакансии для текстового отображения (используется в меню без картинок)"""
     # Определяем эмодзи для сферы
     sphere_emoji = SPHERE_EMOJI.get(vacancy.sphere, "💼")
     
@@ -184,7 +219,7 @@ async def cmd_start(message: Message, state: FSMContext):
         # Красивое приветствие
         welcome_text = f"""
 ╔══════════════════════════╗
-      🎓 <b>Карьерный центр</b>
+   🎓 <b>Комитет Внешних Связей</b>
 ╚══════════════════════════╝
 
 Привет, <b>{user.first_name}</b>! 👋
@@ -244,7 +279,7 @@ async def callback_main_menu(callback: CallbackQuery):
         
         welcome_text = f"""
 ╔══════════════════════════╗
-      🎓 <b>Карьерный центр</b>
+      🎓 <b>Комитет Внешних Связей</b>
 ╚══════════════════════════╝
 
 Привет, <b>{user.first_name}</b>! 👋
@@ -254,11 +289,20 @@ async def callback_main_menu(callback: CallbackQuery):
 
 Выбери действие:
 """
-        await callback.message.edit_text(
-            welcome_text,
-            parse_mode="HTML",
-            reply_markup=get_main_menu_keyboard(user.faculty, vacancies_count)
-        )
+        # Если текущее сообщение - фото, удаляем и отправляем текст
+        if callback.message.photo:
+            await callback.message.delete()
+            await callback.message.answer(
+                welcome_text,
+                parse_mode="HTML",
+                reply_markup=get_main_menu_keyboard(user.faculty, vacancies_count)
+            )
+        else:
+            await callback.message.edit_text(
+                welcome_text,
+                parse_mode="HTML",
+                reply_markup=get_main_menu_keyboard(user.faculty, vacancies_count)
+            )
     await callback.answer()
 
 
@@ -307,10 +351,17 @@ async def callback_my_vacancies(callback: CallbackQuery):
             return
         
         vacancy = vacancies[0]
-        text = format_vacancy(vacancy, show_match=True, user_faculty=user.faculty)
+        caption = format_vacancy_caption(vacancy)
         
-        await callback.message.edit_text(
-            text,
+        # Удаляем старое сообщение и отправляем фото
+        await callback.message.delete()
+        
+        image_bytes = get_cached_or_generate(vacancy)
+        photo = BufferedInputFile(image_bytes, filename=f"vacancy_{vacancy.id}.png")
+        
+        await callback.message.answer_photo(
+            photo=photo,
+            caption=caption,
             parse_mode="HTML",
             reply_markup=get_vacancy_keyboard(vacancy.id, 0, len(vacancies), "my")
         )
@@ -340,10 +391,17 @@ async def callback_all_vacancies(callback: CallbackQuery):
             return
         
         vacancy = vacancies[0]
-        text = format_vacancy(vacancy)
+        caption = format_vacancy_caption(vacancy)
         
-        await callback.message.edit_text(
-            text,
+        # Удаляем старое сообщение и отправляем фото
+        await callback.message.delete()
+        
+        image_bytes = get_cached_or_generate(vacancy)
+        photo = BufferedInputFile(image_bytes, filename=f"vacancy_{vacancy.id}.png")
+        
+        await callback.message.answer_photo(
+            photo=photo,
+            caption=caption,
             parse_mode="HTML",
             reply_markup=get_vacancy_keyboard(vacancy.id, 0, len(vacancies), "all")
         )
@@ -363,32 +421,39 @@ async def callback_vacancies_by_sphere(callback: CallbackQuery):
         )
         spheres = result.all()
         
+        text = "📂 <b>Выбери сферу:</b>\n\n" \
+               "Нажми на интересующую сферу, чтобы посмотреть вакансии:"
+        
         if not spheres:
-            await callback.message.edit_text(
-                "😔 Нет вакансий для фильтрации по сферам.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
-                ])
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+            ])
+            text = "😔 Нет вакансий для фильтрации по сферам."
+        else:
+            keyboard_rows = []
+            for sphere, count in spheres:
+                emoji = SPHERE_EMOJI.get(sphere, "💼")
+                keyboard_rows.append([InlineKeyboardButton(
+                    text=f"{emoji} {sphere} ({count})",
+                    callback_data=f"sphere_{sphere}"
+                )])
+            keyboard_rows.append([InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")])
+            keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+        
+        # Если текущее сообщение - фото, удаляем и отправляем текст
+        if callback.message.photo:
+            await callback.message.delete()
+            await callback.message.answer(
+                text,
+                parse_mode="HTML",
+                reply_markup=keyboard
             )
-            await callback.answer()
-            return
-        
-        keyboard = []
-        for sphere, count in spheres:
-            emoji = SPHERE_EMOJI.get(sphere, "💼")
-            keyboard.append([InlineKeyboardButton(
-                text=f"{emoji} {sphere} ({count})",
-                callback_data=f"sphere_{sphere}"
-            )])
-        
-        keyboard.append([InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")])
-        
-        await callback.message.edit_text(
-            "📂 <b>Выбери сферу:</b>\n\n"
-            "Нажми на интересующую сферу, чтобы посмотреть вакансии:",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
-        )
+        else:
+            await callback.message.edit_text(
+                text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
         await callback.answer()
 
 
@@ -416,11 +481,17 @@ async def callback_sphere_vacancies(callback: CallbackQuery):
         
         vacancy = vacancies[0]
         emoji = SPHERE_EMOJI.get(sphere, "💼")
-        text = f"{emoji} <b>Сфера: {sphere}</b>\n\n"
-        text += format_vacancy(vacancy)
+        caption = f"{emoji} <b>Сфера: {sphere}</b>\n\n" + format_vacancy_caption(vacancy)
         
-        await callback.message.edit_text(
-            text,
+        # Удаляем старое сообщение и отправляем фото
+        await callback.message.delete()
+        
+        image_bytes = get_cached_or_generate(vacancy)
+        photo = BufferedInputFile(image_bytes, filename=f"vacancy_{vacancy.id}.png")
+        
+        await callback.message.answer_photo(
+            photo=photo,
+            caption=caption,
             parse_mode="HTML",
             reply_markup=get_vacancy_keyboard(vacancy.id, 0, len(vacancies), "sphere", sphere)
         )
@@ -429,7 +500,7 @@ async def callback_sphere_vacancies(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("vac_"))
 async def callback_vacancy_navigation(callback: CallbackQuery):
-    """Навигация по вакансиям"""
+    """Навигация по вакансиям с редактированием картинки"""
     parts = callback.data.split("_")
     if len(parts) < 3:
         await callback.answer("Ошибка навигации", show_alert=True)
@@ -477,55 +548,29 @@ async def callback_vacancy_navigation(callback: CallbackQuery):
         
         vacancy = vacancies[target_index]
         
+        # Формируем caption
         if filter_type == "sphere" and sphere:
             emoji = SPHERE_EMOJI.get(sphere, "💼")
-            text = f"{emoji} <b>Сфера: {sphere}</b>\n\n"
-            text += format_vacancy(vacancy)
+            caption = f"{emoji} <b>Сфера: {sphere}</b>\n\n" + format_vacancy_caption(vacancy)
         else:
-            text = format_vacancy(vacancy)
+            caption = format_vacancy_caption(vacancy)
         
-        await callback.message.edit_text(
-            text,
-            parse_mode="HTML",
+        # Получаем или генерируем изображение
+        image_bytes = get_cached_or_generate(vacancy)
+        photo = BufferedInputFile(image_bytes, filename=f"vacancy_{vacancy.id}.png")
+        
+        # Редактируем медиа (картинку) вместо текста
+        new_media = InputMediaPhoto(
+            media=photo,
+            caption=caption,
+            parse_mode="HTML"
+        )
+        
+        await callback.message.edit_media(
+            media=new_media,
             reply_markup=get_vacancy_keyboard(vacancy.id, target_index, len(vacancies), filter_type, sphere)
         )
         await callback.answer()
-
-
-@router.callback_query(F.data.startswith("img_"))
-async def callback_generate_image(callback: CallbackQuery):
-    """Генерация картинки вакансии"""
-    vacancy_id = int(callback.data.replace("img_", ""))
-    
-    await callback.answer("📸 Генерирую картинку...")
-    
-    async with async_session_maker() as session:
-        result = await session.execute(
-            select(Vacancy).where(Vacancy.id == vacancy_id)
-        )
-        vacancy = result.scalar_one_or_none()
-        
-        if not vacancy:
-            await callback.answer("Вакансия не найдена", show_alert=True)
-            return
-        
-        try:
-            # Генерируем изображение
-            image_buffer = generate_vacancy_card(vacancy)
-            
-            # Отправляем изображение
-            photo = BufferedInputFile(
-                image_buffer.read(),
-                filename=f"vacancy_{vacancy_id}.png"
-            )
-            
-            await callback.message.answer_photo(
-                photo=photo,
-                caption=f"📋 <b>{vacancy.position}</b>\n🏢 {vacancy.organization}",
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            await callback.message.answer(f"❌ Ошибка генерации: {str(e)}")
 
 
 @router.callback_query(F.data == "profile")
@@ -566,11 +611,20 @@ async def callback_profile(callback: CallbackQuery):
             [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
         ])
         
-        await callback.message.edit_text(
-            text,
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
+        # Если текущее сообщение - фото, удаляем и отправляем текст
+        if callback.message.photo:
+            await callback.message.delete()
+            await callback.message.answer(
+                text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        else:
+            await callback.message.edit_text(
+                text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
         await callback.answer()
 
 

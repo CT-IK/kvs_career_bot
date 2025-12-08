@@ -8,6 +8,11 @@ from io import BytesIO
 from typing import Optional
 import textwrap
 import os
+import hashlib
+from pathlib import Path
+
+# Папка для кэша изображений
+CACHE_DIR = Path("/app/cache/images")
 
 # Цветовая палитра брендбука
 COLORS = {
@@ -180,7 +185,7 @@ def generate_vacancy_image(
     draw.rectangle([(0, IMAGE_HEIGHT - 12), (IMAGE_WIDTH, IMAGE_HEIGHT)], fill=COLORS["accent"])
     
     # === Логотип/бренд в углу ===
-    brand_text = "КАРЬЕРНЫЙ ЦЕНТР"
+    brand_text = "КОМИТЕТ ВНЕШНИХ СВЯЗЕЙ"
     brand_font = get_font(24, bold=True)
     bbox = draw.textbbox((0, 0), brand_text, font=brand_font)
     brand_width = bbox[2] - bbox[0]
@@ -221,4 +226,111 @@ def generate_vacancy_card(vacancy) -> BytesIO:
         description=vacancy.description or "",
         features=features,
     )
+
+
+def get_vacancy_cache_path(vacancy_id: int) -> Path:
+    """Получить путь к кэшированному изображению вакансии"""
+    return CACHE_DIR / f"vacancy_{vacancy_id}.png"
+
+
+def ensure_cache_dir():
+    """Создать папку кэша если не существует"""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def get_cached_or_generate(vacancy) -> bytes:
+    """
+    Получить изображение из кэша или сгенерировать новое.
+    Возвращает bytes для отправки в Telegram.
+    """
+    ensure_cache_dir()
+    cache_path = get_vacancy_cache_path(vacancy.id)
+    
+    if cache_path.exists():
+        # Читаем из кэша
+        return cache_path.read_bytes()
+    
+    # Генерируем новое изображение
+    buffer = generate_vacancy_card(vacancy)
+    image_bytes = buffer.read()
+    
+    # Сохраняем в кэш
+    cache_path.write_bytes(image_bytes)
+    
+    return image_bytes
+
+
+def generate_and_cache(vacancy) -> bytes:
+    """
+    Сгенерировать изображение и сохранить в кэш (перезаписывает если есть).
+    """
+    ensure_cache_dir()
+    cache_path = get_vacancy_cache_path(vacancy.id)
+    
+    buffer = generate_vacancy_card(vacancy)
+    image_bytes = buffer.read()
+    
+    cache_path.write_bytes(image_bytes)
+    
+    return image_bytes
+
+
+def is_cached(vacancy_id: int) -> bool:
+    """Проверить есть ли изображение в кэше"""
+    return get_vacancy_cache_path(vacancy_id).exists()
+
+
+def clear_cache():
+    """Очистить весь кэш изображений"""
+    ensure_cache_dir()
+    for file in CACHE_DIR.glob("*.png"):
+        file.unlink()
+
+
+def get_missing_cache_ids(vacancy_ids: list) -> list:
+    """Получить список ID вакансий без кэша"""
+    ensure_cache_dir()
+    return [vid for vid in vacancy_ids if not is_cached(vid)]
+
+
+async def pregenerate_vacancy_images():
+    """
+    Прегенерация изображений для всех вакансий без кэша.
+    Вызывается при запуске бота.
+    """
+    from database.db import async_session_maker
+    from database.models import Vacancy
+    from sqlalchemy import select
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    ensure_cache_dir()
+    
+    async with async_session_maker() as session:
+        result = await session.execute(select(Vacancy))
+        vacancies = result.scalars().all()
+        
+        if not vacancies:
+            logger.info("📷 Нет вакансий для генерации изображений")
+            return
+        
+        # Проверяем какие изображения отсутствуют
+        missing = [v for v in vacancies if not is_cached(v.id)]
+        
+        if not missing:
+            logger.info(f"📷 Все {len(vacancies)} изображений уже в кэше")
+            return
+        
+        logger.info(f"📷 Генерация {len(missing)} изображений из {len(vacancies)}...")
+        
+        for i, vacancy in enumerate(missing, 1):
+            try:
+                generate_and_cache(vacancy)
+                if i % 10 == 0:
+                    logger.info(f"📷 Сгенерировано {i}/{len(missing)} изображений")
+            except Exception as e:
+                logger.error(f"❌ Ошибка генерации изображения для вакансии {vacancy.id}: {e}")
+        
+        logger.info(f"✅ Генерация изображений завершена: {len(missing)} новых")
 

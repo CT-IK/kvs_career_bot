@@ -8,6 +8,7 @@ from config import BOT_TOKEN
 from database.db import init_db
 from handlers import registration, admin, vacancies
 from middleware.activity import ActivityMiddleware
+from services.image_generator import pregenerate_vacancy_images
 
 # Настройка логирования
 logging.basicConfig(
@@ -33,6 +34,13 @@ async def main():
     except Exception as e:
         logger.error(f"Ошибка при инициализации БД: {e}")
         return
+    
+    # Прегенерация изображений вакансий (создаём недостающие)
+    logger.info("Проверка кэша изображений...")
+    try:
+        await pregenerate_vacancy_images()
+    except Exception as e:
+        logger.warning(f"Ошибка при прегенерации изображений: {e}")
     
     # Инициализация бота и диспетчера
     bot = Bot(token=BOT_TOKEN)

@@ -40,12 +40,14 @@ services:
     volumes:
       - ./.env:/app/.env:ro
       - ./credentials.json:/app/credentials.json:ro
+      - images_cache:/app/cache/images
     restart: unless-stopped
     networks:
       - kvs_bot_network
 
 volumes:
   postgres_data:
+  images_cache:
 
 networks:
   kvs_bot_network:
