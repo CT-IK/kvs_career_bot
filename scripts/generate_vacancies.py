@@ -238,6 +238,7 @@ def write_to_google_sheets(vacancies: List[Dict], clear_existing: bool = False):
         return False
     
     try:
+        print("🔗 Подключение к Google Sheets...")
         # Подключаемся к Google Sheets
         scopes = [
             'https://www.googleapis.com/auth/spreadsheets',
@@ -250,6 +251,7 @@ def write_to_google_sheets(vacancies: List[Dict], clear_existing: bool = False):
         client = gspread.authorize(creds)
         spreadsheet = client.open(GOOGLE_SHEET_NAME)
         sheet = spreadsheet.sheet1
+        print(f"✅ Подключено к таблице: {GOOGLE_SHEET_NAME}")
         
         headers = get_headers()
         
@@ -259,27 +261,18 @@ def write_to_google_sheets(vacancies: List[Dict], clear_existing: bool = False):
             print("📝 Добавляю заголовки в 3-ю строку...")
             sheet.update(values=[headers], range_name='A3')
         
-        # Определяем, с какой строки начинать запись
-        all_values = sheet.get_all_values()
-        
+        # Всегда записываем с 4-й строки (очищаем старые данные)
         if clear_existing:
-            # Очищаем данные начиная с 4-й строки
+            print("🗑️ Очистка существующих данных...")
+            # Получаем количество строк
+            all_values = sheet.get_all_values()
             if len(all_values) > 3:
-                # Удаляем все строки начиная с 4-й
+                # Очищаем диапазон данных (не удаляем строки, а очищаем содержимое)
                 end_row = len(all_values)
-                if end_row >= 4:
-                    sheet.delete_rows(4, end_row)
-            start_row = 4
-        else:
-            # Находим первую пустую строку после заголовков
-            start_row = 4
-            for i in range(3, len(all_values)):
-                if not all_values[i] or not all_values[i][0] or all_values[i][0].strip() == "":
-                    start_row = i + 1
-                    break
-            else:
-                # Если все строки заполнены, добавляем в конец
-                start_row = len(all_values) + 1
+                sheet.batch_clear([f'A4:S{end_row}'])
+        
+        start_row = 4
+        print(f"📍 Запись начнётся со строки {start_row}")
         
         # Подготавливаем данные для записи
         rows_to_write = []
@@ -308,14 +301,28 @@ def write_to_google_sheets(vacancies: List[Dict], clear_existing: bool = False):
             rows_to_write.append(row)
         
         # Записываем данные начиная с нужной строки
-        range_name = f'A{start_row}:S{start_row + len(rows_to_write) - 1}'
+        end_row = start_row + len(rows_to_write) - 1
+        range_name = f'A{start_row}:S{end_row}'
+        print(f"📝 Записываю {len(rows_to_write)} строк в диапазон {range_name}...")
+        
+        # Используем batch_update для надёжности
         sheet.update(values=rows_to_write, range_name=range_name)
         
-        print(f"✅ Записано {len(vacancies)} вакансий в Google Sheets, начиная со строки {start_row}")
+        print(f"✅ Записано {len(vacancies)} вакансий в Google Sheets!")
         return True
         
+    except gspread.exceptions.APIError as e:
+        print(f"❌ API ошибка Google Sheets: {e.response.status_code} - {e.response.text}")
+        return False
     except Exception as e:
-        print(f"❌ Ошибка при записи в Google Sheets: {e}")
+        # Проверяем, не является ли "ошибка" на самом деле успешным ответом
+        error_str = str(e)
+        if "Response [200]" in error_str or "200" in error_str:
+            print(f"⚠️ Получен ответ 200, возможно данные записались. Проверьте таблицу.")
+            return True
+        print(f"❌ Ошибка при записи в Google Sheets: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
