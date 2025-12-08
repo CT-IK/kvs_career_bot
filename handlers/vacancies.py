@@ -116,14 +116,13 @@ def format_vacancy_caption(vacancy: Vacancy) -> str:
         lines.append(f"⏰ {vacancy.schedule}")
     if vacancy.work_format:
         lines.append(f"📍 {vacancy.work_format}")
+    if vacancy.employment_format:
+        lines.append(f"📋 {vacancy.employment_format}")
     
-    # Контакты если есть
-    if vacancy.contact_person:
-        lines.append(f"\n👤 {vacancy.contact_person}")
-    if vacancy.contact_telegram:
-        lines.append(f"📱 {vacancy.contact_telegram}")
-    if vacancy.contact_email:
-        lines.append(f"📧 {vacancy.contact_email}")
+    # Описание (краткое)
+    if vacancy.description:
+        desc = vacancy.description[:150] + "..." if len(vacancy.description) > 150 else vacancy.description
+        lines.append(f"\n📝 {desc}")
     
     text = "\n".join(lines)
     
