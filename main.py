@@ -2,6 +2,7 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import ErrorEvent
 from aiogram.exceptions import TelegramBadRequest
 from config import BOT_TOKEN
 from database.db import init_db
@@ -47,8 +48,9 @@ async def main():
     dp.include_router(admin.router)
     
     # Обработчик ошибок для старых callback queries
-    @dp.error()
-    async def error_handler(event, exception):
+    @dp.errors()
+    async def error_handler(event: ErrorEvent):
+        exception = event.exception
         if isinstance(exception, TelegramBadRequest):
             if "query is too old" in str(exception):
                 # Игнорируем старые callback queries - это нормально после перезапуска

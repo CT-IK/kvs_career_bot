@@ -1,12 +1,13 @@
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select, func, distinct
 from database.models import User, Vacancy
 from database.db import async_session_maker
 from config import FACULTIES
+from services.image_generator import generate_vacancy_card
 
 router = Router()
 
@@ -85,7 +86,10 @@ def get_vacancy_keyboard(vacancy_id: int, current_index: int, total: int, filter
     
     keyboard.append(nav_buttons)
     
-    # Вторая строка - действия
+    # Кнопка "Скачать картинку"
+    keyboard.append([InlineKeyboardButton(text="📸 Скачать картинку", callback_data=f"img_{vacancy_id}")])
+    
+    # Третья строка - действия
     action_buttons = []
     if filter_type == "sphere" and sphere:
         action_buttons.append(InlineKeyboardButton(text="📂 К сферам", callback_data="vacancies_by_sphere"))
@@ -486,6 +490,42 @@ async def callback_vacancy_navigation(callback: CallbackQuery):
             reply_markup=get_vacancy_keyboard(vacancy.id, target_index, len(vacancies), filter_type, sphere)
         )
         await callback.answer()
+
+
+@router.callback_query(F.data.startswith("img_"))
+async def callback_generate_image(callback: CallbackQuery):
+    """Генерация картинки вакансии"""
+    vacancy_id = int(callback.data.replace("img_", ""))
+    
+    await callback.answer("📸 Генерирую картинку...")
+    
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(Vacancy).where(Vacancy.id == vacancy_id)
+        )
+        vacancy = result.scalar_one_or_none()
+        
+        if not vacancy:
+            await callback.answer("Вакансия не найдена", show_alert=True)
+            return
+        
+        try:
+            # Генерируем изображение
+            image_buffer = generate_vacancy_card(vacancy)
+            
+            # Отправляем изображение
+            photo = BufferedInputFile(
+                image_buffer.read(),
+                filename=f"vacancy_{vacancy_id}.png"
+            )
+            
+            await callback.message.answer_photo(
+                photo=photo,
+                caption=f"📋 <b>{vacancy.position}</b>\n🏢 {vacancy.organization}",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            await callback.message.answer(f"❌ Ошибка генерации: {str(e)}")
 
 
 @router.callback_query(F.data == "profile")
