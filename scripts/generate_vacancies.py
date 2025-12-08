@@ -257,7 +257,7 @@ def write_to_google_sheets(vacancies: List[Dict], clear_existing: bool = False):
         existing_headers = sheet.row_values(3)
         if not existing_headers or existing_headers[0] != headers[0]:
             print("📝 Добавляю заголовки в 3-ю строку...")
-            sheet.update('A3', [headers])
+            sheet.update(values=[headers], range_name='A3')
         
         # Определяем, с какой строки начинать запись
         all_values = sheet.get_all_values()
@@ -309,7 +309,7 @@ def write_to_google_sheets(vacancies: List[Dict], clear_existing: bool = False):
         
         # Записываем данные начиная с нужной строки
         range_name = f'A{start_row}:S{start_row + len(rows_to_write) - 1}'
-        sheet.update(range_name, rows_to_write)
+        sheet.update(values=rows_to_write, range_name=range_name)
         
         print(f"✅ Записано {len(vacancies)} вакансий в Google Sheets, начиная со строки {start_row}")
         return True
