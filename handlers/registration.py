@@ -20,57 +20,67 @@ class RegistrationStates(StatesGroup):
     waiting_for_info_source = State()
 
 
+def get_course_keyboard():
+    """Инлайн клавиатура выбора курса"""
+    keyboard = [
+        [
+            InlineKeyboardButton(text="1", callback_data="reg_course_1"),
+            InlineKeyboardButton(text="2", callback_data="reg_course_2"),
+            InlineKeyboardButton(text="3", callback_data="reg_course_3"),
+        ],
+        [
+            InlineKeyboardButton(text="4", callback_data="reg_course_4"),
+            InlineKeyboardButton(text="5", callback_data="reg_course_5"),
+            InlineKeyboardButton(text="6", callback_data="reg_course_6"),
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
 def get_faculty_keyboard():
-    """Клавиатура выбора факультета"""
+    """Инлайн клавиатура выбора факультета"""
     keyboard = []
-    buttons = []
+    row = []
     for faculty_key, faculty_name in FACULTIES.items():
-        buttons.append(KeyboardButton(text=faculty_name))
-        if len(buttons) == 2:
-            keyboard.append(buttons)
-            buttons = []
-    if buttons:
-        keyboard.append(buttons)
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+        row.append(InlineKeyboardButton(text=faculty_name, callback_data=f"reg_faculty_{faculty_name}"))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def get_info_source_keyboard():
-    """Клавиатура выбора источника информации"""
+    """Инлайн клавиатура выбора источника информации"""
     keyboard = []
     for source_key, source_name in INFO_SOURCES.items():
-        keyboard.append([KeyboardButton(text=source_name)])
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+        keyboard.append([InlineKeyboardButton(text=source_name, callback_data=f"reg_source_{source_name}")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-@router.message(Command("start"))
-async def cmd_start(message: Message, state: FSMContext):
-    """Обработчик команды /start"""
-    async with async_session_maker() as session:
-        # Проверяем, зарегистрирован ли пользователь
-        from sqlalchemy import select
-        result = await session.execute(
-            select(User).where(User.telegram_id == message.from_user.id)
-        )
-        user = result.scalar_one_or_none()
-        
-        if user and user.is_registered:
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📋 Посмотреть вакансии", callback_data="my_vacancies")]
-            ])
-            await message.answer(
-                f"Привет, {user.first_name}! Ты уже зарегистрирован.\n"
-                "Используй /vacancies для просмотра вакансий.",
-                reply_markup=keyboard
-            )
-            return
-        
-        # Начинаем регистрацию
-        await message.answer(
-            "Привет! Добро пожаловать в бот вакансий!\n\n"
-            "Для начала нужно пройти регистрацию.\n"
-            "Пожалуйста, введи своё имя:"
-        )
-        await state.set_state(RegistrationStates.waiting_for_first_name)
+async def start_registration(message: Message, state: FSMContext):
+    """Начало регистрации - вызывается из других модулей"""
+    welcome_text = """
+╔══════════════════════════╗
+      🎓 <b>Карьерный центр</b>
+╚══════════════════════════╝
+
+👋 <b>Добро пожаловать!</b>
+
+Я помогу тебе найти подходящие вакансии
+для твоего факультета.
+
+Для начала пройди короткую регистрацию.
+
+━━━━━━━━━━━━━━━━━━━━
+📝 <b>Шаг 1 из 4:</b> Введи своё имя
+"""
+    await message.answer(
+        welcome_text,
+        parse_mode="HTML"
+    )
+    await state.set_state(RegistrationStates.waiting_for_first_name)
 
 
 @router.message(RegistrationStates.waiting_for_first_name)
@@ -78,11 +88,19 @@ async def process_first_name(message: Message, state: FSMContext):
     """Обработка имени"""
     first_name = message.text.strip()
     if len(first_name) < 2:
-        await message.answer("Имя слишком короткое. Пожалуйста, введи корректное имя:")
+        await message.answer(
+            "❌ Имя слишком короткое.\n"
+            "Введи корректное имя (минимум 2 символа):"
+        )
         return
     
     await state.update_data(first_name=first_name)
-    await message.answer("Отлично! Теперь введи свою фамилию:")
+    await message.answer(
+        f"✅ Привет, <b>{first_name}</b>!\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📝 <b>Шаг 2 из 4:</b> Теперь введи свою фамилию",
+        parse_mode="HTML"
+    )
     await state.set_state(RegistrationStates.waiting_for_last_name)
 
 
@@ -91,91 +109,87 @@ async def process_last_name(message: Message, state: FSMContext):
     """Обработка фамилии"""
     last_name = message.text.strip()
     if len(last_name) < 2:
-        await message.answer("Фамилия слишком короткая. Пожалуйста, введи корректную фамилию:")
+        await message.answer(
+            "❌ Фамилия слишком короткая.\n"
+            "Введи корректную фамилию (минимум 2 символа):"
+        )
         return
     
     await state.update_data(last_name=last_name)
-    await message.answer("Введи свой курс обучения (1-6):")
+    await message.answer(
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📝 <b>Шаг 3 из 4:</b> Выбери свой курс",
+        parse_mode="HTML",
+        reply_markup=get_course_keyboard()
+    )
     await state.set_state(RegistrationStates.waiting_for_course)
 
 
-@router.message(RegistrationStates.waiting_for_course)
-async def process_course(message: Message, state: FSMContext):
-    """Обработка курса"""
-    try:
-        course = int(message.text.strip())
-        if course < 1 or course > 6:
-            await message.answer("Курс должен быть от 1 до 6. Пожалуйста, введи корректный курс:")
-            return
-    except ValueError:
-        await message.answer("Пожалуйста, введи число от 1 до 6:")
-        return
-    
+@router.callback_query(F.data.startswith("reg_course_"), RegistrationStates.waiting_for_course)
+async def process_course_callback(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора курса через инлайн кнопку"""
+    course = int(callback.data.replace("reg_course_", ""))
     await state.update_data(course=course)
-    await message.answer(
-        "Выбери свой факультет:",
+    
+    await callback.message.edit_text(
+        f"✅ Выбран курс: <b>{course}</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📝 <b>Шаг 4 из 4:</b> Выбери свой факультет",
+        parse_mode="HTML",
         reply_markup=get_faculty_keyboard()
     )
     await state.set_state(RegistrationStates.waiting_for_faculty)
+    await callback.answer()
 
 
-@router.message(RegistrationStates.waiting_for_faculty)
-async def process_faculty(message: Message, state: FSMContext):
-    """Обработка факультета"""
-    faculty_text = message.text.strip()
+@router.callback_query(F.data.startswith("reg_faculty_"), RegistrationStates.waiting_for_faculty)
+async def process_faculty_callback(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора факультета через инлайн кнопку"""
+    faculty = callback.data.replace("reg_faculty_", "")
+    await state.update_data(faculty=faculty)
     
-    # Проверяем, что выбранный факультет есть в списке
-    if faculty_text not in FACULTIES.values():
-        await message.answer("Пожалуйста, выбери факультет из предложенных вариантов:")
-        return
-    
-    await state.update_data(faculty=faculty_text)
-    await message.answer(
-        "Откуда ты узнал о проекте?",
+    await callback.message.edit_text(
+        f"✅ Выбран факультет: <b>{faculty}</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📢 <b>Последний вопрос:</b>\nОткуда ты узнал о проекте?",
+        parse_mode="HTML",
         reply_markup=get_info_source_keyboard()
     )
     await state.set_state(RegistrationStates.waiting_for_info_source)
+    await callback.answer()
 
 
-@router.message(RegistrationStates.waiting_for_info_source)
-async def process_info_source(message: Message, state: FSMContext):
-    """Обработка источника информации и завершение регистрации"""
-    info_source_text = message.text.strip()
-    
-    # Проверяем, что выбранный источник есть в списке
-    if info_source_text not in INFO_SOURCES.values():
-        await message.answer("Пожалуйста, выбери источник из предложенных вариантов:")
-        return
-    
+@router.callback_query(F.data.startswith("reg_source_"), RegistrationStates.waiting_for_info_source)
+async def process_info_source_callback(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора источника информации и завершение регистрации"""
+    info_source = callback.data.replace("reg_source_", "")
     data = await state.get_data()
     
     # Сохраняем пользователя в БД
     async with async_session_maker() as session:
         from sqlalchemy import select
         result = await session.execute(
-            select(User).where(User.telegram_id == message.from_user.id)
+            select(User).where(User.telegram_id == callback.from_user.id)
         )
         user = result.scalar_one_or_none()
         
         if user:
-            # Обновляем существующего пользователя
             user.first_name = data["first_name"]
             user.last_name = data["last_name"]
             user.course = data["course"]
             user.faculty = data["faculty"]
-            user.info_source = info_source_text
+            user.info_source = info_source
             user.is_registered = True
             user.registered_at = datetime.utcnow()
             user.last_activity = datetime.utcnow()
         else:
-            # Создаем нового пользователя
             user = User(
-                telegram_id=message.from_user.id,
+                telegram_id=callback.from_user.id,
                 first_name=data["first_name"],
                 last_name=data["last_name"],
                 course=data["course"],
                 faculty=data["faculty"],
-                info_source=info_source_text,
+                info_source=info_source,
                 is_registered=True,
                 registered_at=datetime.utcnow(),
                 last_activity=datetime.utcnow()
@@ -184,16 +198,60 @@ async def process_info_source(message: Message, state: FSMContext):
         
         await session.commit()
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 Посмотреть вакансии", callback_data="my_vacancies")]
-    ])
+    # Получаем количество вакансий для нового пользователя
+    from handlers.vacancies import get_user_vacancies_count, get_main_menu_keyboard
+    async with async_session_maker() as session:
+        vacancies_count = await get_user_vacancies_count(session, data["faculty"])
     
-    await message.answer(
-        f"Отлично, {data['first_name']}! Регистрация завершена.\n\n"
-        "Теперь ты можешь просматривать вакансии, подходящие для твоего факультета.\n"
-        "Используй /vacancies для просмотра доступных вакансий.",
-        reply_markup=keyboard
+    success_text = f"""
+╔══════════════════════════╗
+      ✅ <b>Регистрация завершена!</b>
+╚══════════════════════════╝
+
+Добро пожаловать, <b>{data['first_name']}</b>!
+
+📚 Твой факультет: <b>{data['faculty']}</b>
+🎯 Для тебя доступно: <b>{vacancies_count}</b> вакансий
+
+Выбери действие:
+"""
+    
+    await callback.message.edit_text(
+        success_text,
+        parse_mode="HTML",
+        reply_markup=get_main_menu_keyboard(data["faculty"], vacancies_count)
     )
     
     await state.clear()
+    await callback.answer("🎉 Регистрация завершена!")
 
+
+# Обработка текстового ввода для курса (fallback)
+@router.message(RegistrationStates.waiting_for_course)
+async def process_course_text(message: Message, state: FSMContext):
+    """Обработка курса текстом (если пользователь не нажал кнопку)"""
+    try:
+        course = int(message.text.strip())
+        if course < 1 or course > 6:
+            await message.answer(
+                "❌ Курс должен быть от 1 до 6.\n"
+                "Выбери курс из кнопок выше или введи число:",
+                reply_markup=get_course_keyboard()
+            )
+            return
+    except ValueError:
+        await message.answer(
+            "❌ Пожалуйста, выбери курс из кнопок:",
+            reply_markup=get_course_keyboard()
+        )
+        return
+    
+    await state.update_data(course=course)
+    await message.answer(
+        f"✅ Выбран курс: <b>{course}</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📝 <b>Шаг 4 из 4:</b> Выбери свой факультет",
+        parse_mode="HTML",
+        reply_markup=get_faculty_keyboard()
+    )
+    await state.set_state(RegistrationStates.waiting_for_faculty)
