@@ -39,8 +39,7 @@ services:
       GOOGLE_SHEET_NAME: ${GOOGLE_SHEET_NAME:-}
     volumes:
       - ./.env:/app/.env:ro
-      # Раскомментируйте следующую строку, если используете Google Sheets:
-      # - ./credentials.json:/app/credentials.json:ro
+      - ./credentials.json:/app/credentials.json:ro
     restart: unless-stopped
     networks:
       - kvs_bot_network
