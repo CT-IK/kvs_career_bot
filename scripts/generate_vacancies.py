@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
     import gspread
     from google.oauth2.service_account import Credentials
-    from config import GOOGLE_CREDENTIALS_FILE, GOOGLE_SHEET_NAME
+    from config import GOOGLE_CREDENTIALS_FILE, GOOGLE_SHEET_NAME, GOOGLE_SHEETS_URL
     GSPREAD_AVAILABLE = True
 except ImportError:
     GSPREAD_AVAILABLE = False
@@ -249,9 +249,21 @@ def write_to_google_sheets(vacancies: List[Dict], clear_existing: bool = False):
             scopes=scopes
         )
         client = gspread.authorize(creds)
-        spreadsheet = client.open(GOOGLE_SHEET_NAME)
+        
+        # Пробуем разные способы открытия таблицы
+        spreadsheet = None
+        if GOOGLE_SHEETS_URL:
+            print(f"📎 Открываю по URL: {GOOGLE_SHEETS_URL[:50]}...")
+            spreadsheet = client.open_by_url(GOOGLE_SHEETS_URL)
+        elif GOOGLE_SHEET_NAME:
+            print(f"📎 Открываю по имени: {GOOGLE_SHEET_NAME}")
+            spreadsheet = client.open(GOOGLE_SHEET_NAME)
+        else:
+            print("❌ Не указаны GOOGLE_SHEETS_URL или GOOGLE_SHEET_NAME в .env")
+            return False
+        
         sheet = spreadsheet.sheet1
-        print(f"✅ Подключено к таблице: {GOOGLE_SHEET_NAME}")
+        print(f"✅ Подключено к таблице: {spreadsheet.title}")
         
         headers = get_headers()
         
