@@ -267,23 +267,23 @@ def write_to_google_sheets(vacancies: List[Dict], clear_existing: bool = False):
         
         headers = get_headers()
         
-        # Проверяем и добавляем заголовки в 3-ю строку
-        existing_headers = sheet.row_values(3)
+        # Проверяем и добавляем заголовки во 2-ю строку
+        existing_headers = sheet.row_values(2)
         if not existing_headers or existing_headers[0] != headers[0]:
-            print("📝 Добавляю заголовки в 3-ю строку...")
-            sheet.update(values=[headers], range_name='A3')
+            print("📝 Добавляю заголовки во 2-ю строку...")
+            sheet.update(values=[headers], range_name='A2')
         
-        # Всегда записываем с 4-й строки (очищаем старые данные)
+        # Всегда записываем с 3-й строки (очищаем старые данные)
         if clear_existing:
             print("🗑️ Очистка существующих данных...")
             # Получаем количество строк
             all_values = sheet.get_all_values()
-            if len(all_values) > 3:
+            if len(all_values) > 2:
                 # Очищаем диапазон данных (не удаляем строки, а очищаем содержимое)
                 end_row = len(all_values)
-                sheet.batch_clear([f'A4:S{end_row}'])
+                sheet.batch_clear([f'A3:S{end_row}'])
         
-        start_row = 4
+        start_row = 3
         print(f"📍 Запись начнётся со строки {start_row}")
         
         # Подготавливаем данные для записи

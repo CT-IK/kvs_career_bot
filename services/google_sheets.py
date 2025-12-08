@@ -58,8 +58,8 @@ def get_google_sheet():
 def parse_vacancies_from_sheet(sheet) -> list[dict]:
     """Парсинг вакансий из Google таблицы"""
     try:
-        # Получаем заголовки из 3 строки
-        headers = sheet.row_values(3)
+        # Получаем заголовки из 2 строки (у пользователя такая структура)
+        headers = sheet.row_values(2)
         print(f"📋 Заголовки ({len(headers)}): {headers[:5]}...")
         
         if not headers or len(headers) < 5:
@@ -70,8 +70,8 @@ def parse_vacancies_from_sheet(sheet) -> list[dict]:
         all_values = sheet.get_all_values()
         print(f"📊 Всего строк в таблице: {len(all_values)}")
         
-        # Данные начинаются с 4 строки (индекс 3)
-        data_rows = all_values[3:] if len(all_values) > 3 else []
+        # Данные начинаются с 3 строки (индекс 2)
+        data_rows = all_values[2:] if len(all_values) > 2 else []
         print(f"📊 Строк с данными: {len(data_rows)}")
         
         if not data_rows:
