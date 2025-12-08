@@ -86,6 +86,11 @@ async def start_registration(message: Message, state: FSMContext):
 @router.message(RegistrationStates.waiting_for_first_name)
 async def process_first_name(message: Message, state: FSMContext):
     """Обработка имени"""
+    # Если пользователь ввёл команду - игнорируем (команда обработается другим роутером)
+    if message.text and message.text.startswith('/'):
+        await state.clear()
+        return
+    
     first_name = message.text.strip()
     if len(first_name) < 2:
         await message.answer(
@@ -107,6 +112,11 @@ async def process_first_name(message: Message, state: FSMContext):
 @router.message(RegistrationStates.waiting_for_last_name)
 async def process_last_name(message: Message, state: FSMContext):
     """Обработка фамилии"""
+    # Если пользователь ввёл команду - игнорируем
+    if message.text and message.text.startswith('/'):
+        await state.clear()
+        return
+    
     last_name = message.text.strip()
     if len(last_name) < 2:
         await message.answer(
@@ -230,6 +240,11 @@ async def process_info_source_callback(callback: CallbackQuery, state: FSMContex
 @router.message(RegistrationStates.waiting_for_course)
 async def process_course_text(message: Message, state: FSMContext):
     """Обработка курса текстом (если пользователь не нажал кнопку)"""
+    # Если пользователь ввёл команду - игнорируем
+    if message.text and message.text.startswith('/'):
+        await state.clear()
+        return
+    
     try:
         course = int(message.text.strip())
         if course < 1 or course > 6:

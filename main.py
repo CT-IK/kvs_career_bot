@@ -39,9 +39,10 @@ async def main():
     # Регистрация middleware
     dp.update.middleware(ActivityMiddleware())
     
-    # Регистрация роутеров
-    dp.include_router(registration.router)
+    # Регистрация роутеров (порядок важен!)
+    # vacancies первым - там /start для всех
     dp.include_router(vacancies.router)
+    dp.include_router(registration.router)
     dp.include_router(admin.router)
     
     logger.info("Бот запущен")

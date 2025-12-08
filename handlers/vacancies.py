@@ -560,6 +560,11 @@ async def callback_edit_name(callback: CallbackQuery, state: FSMContext):
 @router.message(EditProfileStates.editing_name)
 async def process_edit_name(message: Message, state: FSMContext):
     """Обработка нового имени"""
+    # Если пользователь ввёл команду - игнорируем
+    if message.text and message.text.startswith('/'):
+        await state.clear()
+        return
+    
     parts = message.text.strip().split(maxsplit=1)
     
     if len(parts) < 2:
