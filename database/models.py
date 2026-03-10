@@ -26,6 +26,7 @@ class Vacancy(Base):
     
     id = Column(Integer, primary_key=True)
     organization = Column(String(200))
+    division = Column(String(200))  # Подразделение компании
     position = Column(String(200))
     sphere = Column(String(100))
     salary = Column(String(100))
@@ -59,4 +60,33 @@ class Statistics(Base):
     registered_users = Column(Integer, default=0)
     total_vacancies = Column(Integer, default=0)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Company(Base):
+    """Описания компаний для вакансий"""
+    __tablename__ = "companies"
+    
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), unique=True, nullable=False, index=True)  # Название компании (из вакансии)
+    description = Column(Text)  # Описание компании (поддерживает HTML форматирование)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Связь с подразделениями
+    divisions = relationship("Division", back_populates="company")
+
+
+class Division(Base):
+    """Подразделения компаний"""
+    __tablename__ = "divisions"
+    
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    name = Column(String(200), nullable=False)  # Название подразделения
+    description = Column(Text)  # Описание подразделения
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Связь с компанией
+    company = relationship("Company", back_populates="divisions")
 

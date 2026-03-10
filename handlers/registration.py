@@ -62,9 +62,9 @@ def get_info_source_keyboard():
 async def start_registration(message: Message, state: FSMContext):
     """Начало регистрации - вызывается из других модулей"""
     welcome_text = """
-╔══════════════════════════╗
+
    🎓 <b>Комитет Внешних Связей</b>
-╚══════════════════════════╝
+
 
 👋 <b>Добро пожаловать!</b>
 
@@ -73,7 +73,7 @@ async def start_registration(message: Message, state: FSMContext):
 
 Для начала пройди короткую регистрацию.
 
-━━━━━━━━━━━━━━━━━━━━
+
 📝 <b>Шаг 1 из 4:</b> Введи своё имя
 """
     await message.answer(
@@ -214,9 +214,9 @@ async def process_info_source_callback(callback: CallbackQuery, state: FSMContex
         vacancies_count = await get_user_vacancies_count(session, data["faculty"])
     
     success_text = f"""
-╔══════════════════════════╗
+
       ✅ <b>Регистрация завершена!</b>
-╚══════════════════════════╝
+      
 
 Добро пожаловать, <b>{data['first_name']}</b>!
 

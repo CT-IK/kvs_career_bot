@@ -61,7 +61,7 @@ async def main():
         exception = event.exception
         if isinstance(exception, TelegramBadRequest):
             if "query is too old" in str(exception):
-                # Игнорируем старые callback queries - это нормально после перезапуска
+
                 return True
         logger.error(f"Ошибка: {exception}")
         return True

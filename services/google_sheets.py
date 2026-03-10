@@ -75,7 +75,7 @@ def parse_vacancies_from_sheet(sheet) -> list[dict]:
         print(f"📊 Строк с данными: {len(data_rows)}")
         
         if not data_rows:
-            print("⚠️ Нет данных для парсинга (строки 4+)")
+            print("⚠️ Нет данных для парсинга (строки 3+)")
             return []
         
         vacancies = []
@@ -95,6 +95,7 @@ def parse_vacancies_from_sheet(sheet) -> list[dict]:
             # Преобразуем в структуру для БД
             vacancy = {
                 "organization": vacancy_data.get("Организация", "").strip(),
+                "division": vacancy_data.get("Подразделение", "").strip(),
                 "position": vacancy_data.get("Вакансия", "").strip(),
                 "sphere": vacancy_data.get("Сфера", "").strip(),
                 "salary": vacancy_data.get("ЗП", "").strip(),

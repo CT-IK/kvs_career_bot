@@ -65,3 +65,7 @@ logs/
 # OS
 Thumbs.db
 
+
+# Image cache
+cache/
+.env

@@ -3,6 +3,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    """Convert environment variable to bool safely."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 # Telegram Bot
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(","))) if os.getenv("ADMIN_IDS") else []
@@ -18,6 +26,7 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 GOOGLE_SHEETS_URL = os.getenv("GOOGLE_SHEETS_URL", "")
 GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "")
+SEED_DEMO_DATA = _env_bool("SEED_DEMO_DATA", default=False)
 
 # Факультеты
 FACULTIES = {
@@ -26,7 +35,7 @@ FACULTIES = {
     "ФЭБ": "ФЭБ",
     "СНиМК": "СНиМК",
     "НАБ": "НАБ",
-    "ФШУ": "ФШУ",
+    "ВШУ": "ВШУ",
     "ФФ": "ФФ",
     "ЮФ": "ЮФ"
 }

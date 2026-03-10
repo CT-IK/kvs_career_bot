@@ -257,7 +257,7 @@ def write_to_google_sheets(vacancies: List[Dict], clear_existing: bool = False):
             spreadsheet = client.open_by_url(GOOGLE_SHEETS_URL)
         elif GOOGLE_SHEET_NAME:
             print(f"📎 Открываю по имени: {GOOGLE_SHEET_NAME}")
-            spreadsheet = client.open(GOOGLE_SHEET_NAME)
+        spreadsheet = client.open(GOOGLE_SHEET_NAME)
         else:
             print("❌ Не указаны GOOGLE_SHEETS_URL или GOOGLE_SHEET_NAME в .env")
             return False

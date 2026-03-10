@@ -1,15 +1,61 @@
-from aiogram import Router, F
+import html
+
+from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BufferedInputFile, InputMediaPhoto
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select, func, distinct
-from database.models import User, Vacancy
+from pathlib import Path
+
+from database.models import User, Vacancy, Company, Division
 from database.db import async_session_maker
-from config import FACULTIES
-from services.image_generator import get_cached_or_generate
+from config import FACULTIES, ADMIN_IDS
+
+
+def resolve_image_path(*candidates: Path) -> Path | None:
+    """Return the first existing path from provided image candidates."""
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+# Пути к картинкам (c fallback по расширениям)
+ASSETS_PATH = Path(__file__).parent.parent / "assets" / "images"
+MENU_IMAGE_PATH = resolve_image_path(
+    ASSETS_PATH / "menu_picture.jpg",
+    ASSETS_PATH / "menu_picture.jpeg",
+    ASSETS_PATH / "menu_picture.png",
+)
+VACANCY_IMAGE_PATH = resolve_image_path(
+    ASSETS_PATH / "vacancy_card.jpg",
+    ASSETS_PATH / "vacancy_card.jpeg",
+    ASSETS_PATH / "vacancy_card.png",
+)
+ABOUT_US_IMAGE_PATH = resolve_image_path(
+    ASSETS_PATH / "about_us.jpg",
+    ASSETS_PATH / "about_us.jpeg",
+    ASSETS_PATH / "about_us.png",
+)
+COMPANY_IMAGE_PATH = resolve_image_path(
+    ASSETS_PATH / "company_card.jpg",
+    ASSETS_PATH / "company_card.jpeg",
+    ASSETS_PATH / "company_card.png",
+)
+DIVISION_IMAGE_PATH = resolve_image_path(
+    ASSETS_PATH / "division_card.jpg",
+    ASSETS_PATH / "division_card.jpeg",
+    ASSETS_PATH / "division_card.png",
+)
 
 router = Router()
+
+
+# Состояния для обратной связи
+class FeedbackStates(StatesGroup):
+    waiting_for_message = State()
+
 
 # Маппинг факультетов из бота в поля БД
 FACULTY_TO_DB_FIELD = {
@@ -18,7 +64,7 @@ FACULTY_TO_DB_FIELD = {
     "ФЭБ": "feb",
     "СНиМК": "snimk",
     "НАБ": "nab",
-    "ФШУ": "vshu",
+    "ВШУ": "vshu",
     "ФФ": "finfak",
     "ЮФ": "yurfak"
 }
@@ -41,15 +87,16 @@ SPHERE_EMOJI = {
 def get_main_menu_keyboard(user_faculty: str = None, vacancies_count: int = 0):
     """Главное меню с кнопками"""
     keyboard = [
-        [InlineKeyboardButton(text=f"🎯 Для меня ({vacancies_count})", callback_data="my_vacancies")],
-        [InlineKeyboardButton(text="🔍 Все вакансии", callback_data="all_vacancies")],
-        [InlineKeyboardButton(text="📂 По сферам", callback_data="vacancies_by_sphere")],
         [InlineKeyboardButton(text="👤 Мой профиль", callback_data="profile")],
+        [InlineKeyboardButton(text="💬 Обратная связь", callback_data="feedback")],
+        [InlineKeyboardButton(text="🏢 Компании-партнёры", callback_data="companies_list")],
+        [InlineKeyboardButton(text="📋 Вакансии", callback_data="vacancies_menu")],
+        [InlineKeyboardButton(text="ℹ️ О нас", callback_data="about_us")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-def get_vacancy_keyboard(vacancy_id: int, current_index: int, total: int, filter_type: str = "all", sphere: str = None):
+def get_vacancy_keyboard(vacancy_id: int, current_index: int, total: int, filter_type: str = "all", sphere: str = None, has_company_desc: bool = False, organization: str = None):
     """Клавиатура для навигации по вакансиям"""
     keyboard = []
     
@@ -83,10 +130,17 @@ def get_vacancy_keyboard(vacancy_id: int, current_index: int, total: int, filter
     # Кнопка "В конец" если не на последней
     if current_index < total - 1:
         nav_buttons.append(InlineKeyboardButton(text="⏭️", callback_data=f"vac_{filter_type}_{total - 1}_{sphere or ''}"))
-    
+
     keyboard.append(nav_buttons)
     
-    # Вторая строка - действия
+    # Кнопка "О компании" если есть описание
+    if has_company_desc and organization:
+        keyboard.append([InlineKeyboardButton(
+            text="🏢 О компании", 
+            callback_data=f"about_company_{vacancy_id}_{filter_type}_{current_index}_{sphere or ''}"
+        )])
+    
+    # Последняя строка - действия
     action_buttons = []
     if filter_type == "sphere" and sphere:
         action_buttons.append(InlineKeyboardButton(text="📂 К сферам", callback_data="vacancies_by_sphere"))
@@ -94,6 +148,16 @@ def get_vacancy_keyboard(vacancy_id: int, current_index: int, total: int, filter
     keyboard.append(action_buttons)
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+async def check_company_has_description(session, organization: str) -> bool:
+    """Проверить есть ли у компании описание"""
+    if not organization:
+        return False
+    result = await session.execute(
+        select(Company).where(Company.name == organization, Company.description != None, Company.description != "")
+    )
+    return result.scalar_one_or_none() is not None
 
 
 def format_vacancy_caption(vacancy: Vacancy) -> str:
@@ -217,9 +281,7 @@ async def cmd_start(message: Message, state: FSMContext):
         
         # Красивое приветствие
         welcome_text = f"""
-╔══════════════════════════╗
-   🎓 <b>Комитет Внешних Связей</b>
-╚══════════════════════════╝
+🎓 <b>Комитет Внешних Связей</b>
 
 Привет, <b>{user.first_name}</b>! 👋
 
@@ -228,11 +290,22 @@ async def cmd_start(message: Message, state: FSMContext):
 
 Выбери действие:
 """
-        await message.answer(
-            welcome_text,
-            parse_mode="HTML",
-            reply_markup=get_main_menu_keyboard(user.faculty, vacancies_count)
-        )
+        keyboard = get_main_menu_keyboard(user.faculty, vacancies_count)
+        
+        if MENU_IMAGE_PATH:
+            photo = FSInputFile(MENU_IMAGE_PATH)
+            await message.answer_photo(
+                photo=photo,
+                caption=welcome_text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        else:
+            await message.answer(
+                welcome_text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
 
 
 @router.message(Command("vacancies"))
@@ -253,12 +326,32 @@ async def cmd_vacancies(message: Message):
         
         vacancies_count = await get_user_vacancies_count(session, user.faculty)
         
-        await message.answer(
-            f"🎯 <b>Раздел вакансий</b>\n\n"
-            f"Для тебя доступно <b>{vacancies_count}</b> вакансий",
-            parse_mode="HTML",
-            reply_markup=get_main_menu_keyboard(user.faculty, vacancies_count)
-        )
+        welcome_text = f"""
+🎓 <b>Комитет Внешних Связей</b>
+
+Привет, <b>{user.first_name}</b>! 👋
+
+📚 Факультет: <b>{user.faculty}</b>
+🎯 Для тебя: <b>{vacancies_count}</b> вакансий
+
+Выбери действие:
+"""
+        keyboard = get_main_menu_keyboard(user.faculty, vacancies_count)
+        
+        if MENU_IMAGE_PATH:
+            photo = FSInputFile(MENU_IMAGE_PATH)
+            await message.answer_photo(
+                photo=photo,
+                caption=welcome_text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        else:
+            await message.answer(
+                welcome_text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
 
 
 @router.callback_query(F.data == "main_menu")
@@ -277,9 +370,7 @@ async def callback_main_menu(callback: CallbackQuery):
         vacancies_count = await get_user_vacancies_count(session, user.faculty)
         
         welcome_text = f"""
-╔══════════════════════════╗
-      🎓 <b>Комитет Внешних Связей</b>
-╚══════════════════════════╝
+🎓 <b>Комитет Внешних Связей</b>
 
 Привет, <b>{user.first_name}</b>! 👋
 
@@ -288,19 +379,23 @@ async def callback_main_menu(callback: CallbackQuery):
 
 Выбери действие:
 """
-        # Если текущее сообщение - фото, удаляем и отправляем текст
-        if callback.message.photo:
-            await callback.message.delete()
+        keyboard = get_main_menu_keyboard(user.faculty, vacancies_count)
+        
+        # Всегда показываем картинку с caption
+        await callback.message.delete()
+        if MENU_IMAGE_PATH:
+            photo = FSInputFile(MENU_IMAGE_PATH)
+            await callback.message.answer_photo(
+                photo=photo,
+                caption=welcome_text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        else:
             await callback.message.answer(
                 welcome_text,
                 parse_mode="HTML",
-                reply_markup=get_main_menu_keyboard(user.faculty, vacancies_count)
-            )
-        else:
-            await callback.message.edit_text(
-                welcome_text,
-                parse_mode="HTML",
-                reply_markup=get_main_menu_keyboard(user.faculty, vacancies_count)
+                reply_markup=keyboard
             )
     await callback.answer()
 
@@ -309,6 +404,161 @@ async def callback_main_menu(callback: CallbackQuery):
 async def callback_noop(callback: CallbackQuery):
     """Пустой callback для счётчика"""
     await callback.answer()
+
+
+@router.callback_query(F.data == "feedback")
+async def callback_feedback(callback: CallbackQuery, state: FSMContext):
+    """Обратная связь"""
+    text = """
+╔══════════════════════════╗
+        💬 <b>Обратная связь</b>
+╚══════════════════════════╝
+
+Напиши своё сообщение, и мы обязательно его получим!
+
+<i>Это может быть вопрос, предложение или сообщение о проблеме.</i>
+"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="main_menu")]
+    ])
+    
+    if callback.message.photo:
+        await callback.message.delete()
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    else:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    
+    await state.set_state(FeedbackStates.waiting_for_message)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "about_us")
+async def callback_about_us(callback: CallbackQuery):
+    """О нас"""
+    text = """
+ℹ️ <b>О Комитете Внешних Связей</b>
+
+Комитет Внешних Связей — это студенческая организация, которая помогает студентам находить стажировки и вакансии от лучших компаний-партнёров.
+
+🎯 <b>Наша миссия:</b>
+Помочь каждому студенту найти работу мечты и начать успешную карьеру.
+
+📌 <b>Что мы делаем:</b>
+• Собираем актуальные вакансии
+• Сотрудничаем с топовыми компаниями
+• Помогаем с трудоустройством
+
+💼 <b>Присоединяйся к нам!</b>
+"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+    ])
+    
+    await callback.message.delete()
+    if ABOUT_US_IMAGE_PATH:
+        photo = FSInputFile(ABOUT_US_IMAGE_PATH)
+        await callback.message.answer_photo(
+            photo=photo,
+            caption=text,
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
+    else:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.message(FeedbackStates.waiting_for_message)
+async def process_feedback_message(message: Message, state: FSMContext, bot: Bot):
+    """Forward feedback to admins with escaped user content."""
+    await state.clear()
+    
+    # Получаем информацию о пользователе
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == message.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+    
+    # Формируем сообщение для админов
+    user_info_raw = f"@{message.from_user.username}" if message.from_user.username else f"ID: {message.from_user.id}"
+    user_name_raw = f"{user.first_name} {user.last_name}" if user else message.from_user.full_name
+    faculty_raw = user.faculty if user else "Не указан"
+    feedback_text = message.text or message.caption or "[Не текстовое сообщение]"
+
+    user_info = html.escape(user_info_raw)
+    user_name = html.escape(user_name_raw)
+    faculty = html.escape(faculty_raw)
+    feedback_text = html.escape(feedback_text)
+    
+    admin_text = f"""
+📩 <b>Новое сообщение обратной связи</b>
+
+👤 <b>От:</b> {user_name}
+📱 <b>Контакт:</b> {user_info}
+🏛️ <b>Факультет:</b> {faculty}
+
+━━━━━━━━━━━━━━━━━━━━
+💬 <b>Сообщение:</b>
+{feedback_text}
+"""
+    
+    # Отправляем всем админам
+    sent_count = 0
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, admin_text, parse_mode="HTML")
+            sent_count += 1
+        except Exception:
+            pass
+    
+    # Подтверждение пользователю
+    await message.answer(
+        "✅ <b>Сообщение отправлено!</b>\n\n"
+        "Спасибо за обратную связь. Мы постараемся ответить как можно скорее.",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+        ])
+    )
+
+
+@router.callback_query(F.data == "vacancies_menu")
+async def callback_vacancies_menu(callback: CallbackQuery):
+    """Меню вакансий"""
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await callback.answer("Ошибка", show_alert=True)
+            return
+        
+        vacancies_count = await get_user_vacancies_count(session, user.faculty)
+        
+        text = f"""
+╔══════════════════════════╗
+          📋 <b>Вакансии</b>
+╚══════════════════════════╝
+
+Выбери способ просмотра:
+"""
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"🎯 Для меня ({vacancies_count})", callback_data="my_vacancies")],
+            [InlineKeyboardButton(text="🔍 Все вакансии", callback_data="all_vacancies")],
+            [InlineKeyboardButton(text="📂 По сферам", callback_data="vacancies_by_sphere")],
+            [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+        ])
+        
+        if callback.message.photo:
+            await callback.message.delete()
+            await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+        else:
+            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+        await callback.answer()
 
 
 @router.callback_query(F.data == "my_vacancies")
@@ -352,17 +602,19 @@ async def callback_my_vacancies(callback: CallbackQuery):
         vacancy = vacancies[0]
         caption = format_vacancy_caption(vacancy)
         
+        # Проверяем есть ли описание компании
+        has_company_desc = await check_company_has_description(session, vacancy.organization)
+        
         # Удаляем старое сообщение и отправляем фото
         await callback.message.delete()
         
-        image_bytes = get_cached_or_generate(vacancy)
-        photo = BufferedInputFile(image_bytes, filename=f"vacancy_{vacancy.id}.png")
+        photo = FSInputFile(VACANCY_IMAGE_PATH)
         
         await callback.message.answer_photo(
             photo=photo,
             caption=caption,
             parse_mode="HTML",
-            reply_markup=get_vacancy_keyboard(vacancy.id, 0, len(vacancies), "my")
+            reply_markup=get_vacancy_keyboard(vacancy.id, 0, len(vacancies), "my", has_company_desc=has_company_desc, organization=vacancy.organization)
         )
         await callback.answer()
 
@@ -392,17 +644,19 @@ async def callback_all_vacancies(callback: CallbackQuery):
         vacancy = vacancies[0]
         caption = format_vacancy_caption(vacancy)
         
+        # Проверяем есть ли описание компании
+        has_company_desc = await check_company_has_description(session, vacancy.organization)
+        
         # Удаляем старое сообщение и отправляем фото
         await callback.message.delete()
         
-        image_bytes = get_cached_or_generate(vacancy)
-        photo = BufferedInputFile(image_bytes, filename=f"vacancy_{vacancy.id}.png")
+        photo = FSInputFile(VACANCY_IMAGE_PATH)
         
         await callback.message.answer_photo(
             photo=photo,
             caption=caption,
             parse_mode="HTML",
-            reply_markup=get_vacancy_keyboard(vacancy.id, 0, len(vacancies), "all")
+            reply_markup=get_vacancy_keyboard(vacancy.id, 0, len(vacancies), "all", has_company_desc=has_company_desc, organization=vacancy.organization)
         )
         await callback.answer()
 
@@ -449,8 +703,8 @@ async def callback_vacancies_by_sphere(callback: CallbackQuery):
             )
         else:
             await callback.message.edit_text(
-                text,
-                parse_mode="HTML",
+            text,
+            parse_mode="HTML",
                 reply_markup=keyboard
             )
         await callback.answer()
@@ -482,17 +736,19 @@ async def callback_sphere_vacancies(callback: CallbackQuery):
         emoji = SPHERE_EMOJI.get(sphere, "💼")
         caption = f"{emoji} <b>Сфера: {sphere}</b>\n\n" + format_vacancy_caption(vacancy)
         
+        # Проверяем есть ли описание компании
+        has_company_desc = await check_company_has_description(session, vacancy.organization)
+        
         # Удаляем старое сообщение и отправляем фото
         await callback.message.delete()
         
-        image_bytes = get_cached_or_generate(vacancy)
-        photo = BufferedInputFile(image_bytes, filename=f"vacancy_{vacancy.id}.png")
+        photo = FSInputFile(VACANCY_IMAGE_PATH)
         
         await callback.message.answer_photo(
             photo=photo,
             caption=caption,
             parse_mode="HTML",
-            reply_markup=get_vacancy_keyboard(vacancy.id, 0, len(vacancies), "sphere", sphere)
+            reply_markup=get_vacancy_keyboard(vacancy.id, 0, len(vacancies), "sphere", sphere, has_company_desc=has_company_desc, organization=vacancy.organization)
         )
         await callback.answer()
 
@@ -535,6 +791,44 @@ async def callback_vacancy_navigation(callback: CallbackQuery):
                 select(Vacancy).where(Vacancy.sphere == sphere).order_by(Vacancy.created_at.desc())
             )
             vacancies = result.scalars().all()
+        elif filter_type == "division" and sphere:
+            # sphere содержит division_id
+            division_id = int(sphere)
+            division_result = await session.execute(
+                select(Division).where(Division.id == division_id)
+            )
+            division = division_result.scalar_one_or_none()
+            if division:
+                company_result = await session.execute(
+                    select(Company).where(Company.id == division.company_id)
+                )
+                company = company_result.scalar_one_or_none()
+                if company:
+                    result = await session.execute(
+                        select(Vacancy).where(
+                            Vacancy.organization == company.name,
+                            Vacancy.division == division.name
+                        ).order_by(Vacancy.created_at.desc())
+                    )
+                    vacancies = result.scalars().all()
+                else:
+                    vacancies = []
+            else:
+                vacancies = []
+        elif filter_type == "company" and sphere:
+            # sphere содержит company_id
+            company_id = int(sphere)
+            company_result = await session.execute(
+                select(Company).where(Company.id == company_id)
+            )
+            company = company_result.scalar_one_or_none()
+            if company:
+                result = await session.execute(
+                    select(Vacancy).where(Vacancy.organization == company.name).order_by(Vacancy.created_at.desc())
+                )
+                vacancies = result.scalars().all()
+            else:
+                vacancies = []
         else:
             result = await session.execute(
                 select(Vacancy).order_by(Vacancy.created_at.desc())
@@ -554,9 +848,11 @@ async def callback_vacancy_navigation(callback: CallbackQuery):
         else:
             caption = format_vacancy_caption(vacancy)
         
+        # Проверяем есть ли описание компании
+        has_company_desc = await check_company_has_description(session, vacancy.organization)
+        
         # Получаем или генерируем изображение
-        image_bytes = get_cached_or_generate(vacancy)
-        photo = BufferedInputFile(image_bytes, filename=f"vacancy_{vacancy.id}.png")
+        photo = FSInputFile(VACANCY_IMAGE_PATH)
         
         # Редактируем медиа (картинку) вместо текста
         new_media = InputMediaPhoto(
@@ -567,7 +863,7 @@ async def callback_vacancy_navigation(callback: CallbackQuery):
         
         await callback.message.edit_media(
             media=new_media,
-            reply_markup=get_vacancy_keyboard(vacancy.id, target_index, len(vacancies), filter_type, sphere)
+            reply_markup=get_vacancy_keyboard(vacancy.id, target_index, len(vacancies), filter_type, sphere, has_company_desc=has_company_desc, organization=vacancy.organization)
         )
         await callback.answer()
 
@@ -624,6 +920,371 @@ async def callback_profile(callback: CallbackQuery):
                 parse_mode="HTML",
                 reply_markup=keyboard
             )
+        await callback.answer()
+
+
+@router.callback_query(F.data == "companies_list")
+async def callback_companies_list(callback: CallbackQuery):
+    """Показать список компаний для пользователя"""
+    async with async_session_maker() as session:
+        # Получаем все компании с описаниями
+        result = await session.execute(
+            select(Company).where(Company.description.isnot(None)).order_by(Company.name)
+        )
+        companies = result.scalars().all()
+        
+        if not companies:
+            # Если текущее сообщение - фото, удаляем и отправляем текст
+            if callback.message.photo:
+                await callback.message.delete()
+                await callback.message.answer(
+                    "🏢 <b>Компании</b>\n\n"
+                    "Пока нет информации о компаниях.\n"
+                    "Загляни позже!",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+                    ])
+                )
+            else:
+                await callback.message.edit_text(
+                    "🏢 <b>Компании</b>\n\n"
+                    "Пока нет информации о компаниях.\n"
+                    "Загляни позже!",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+                    ])
+                )
+            await callback.answer()
+            return
+        
+        text = f"""
+╔══════════════════════════╗
+          🏢 <b>Компании</b>
+╚══════════════════════════╝
+
+Выбери компанию, чтобы узнать о ней больше:
+"""
+        
+        # Создаём кнопки для каждой компании
+        keyboard = []
+        for company in companies:
+            keyboard.append([
+                InlineKeyboardButton(
+                    text=f"🏢 {company.name}",
+                    callback_data=f"view_company_{company.id}"
+                )
+            ])
+        keyboard.append([InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")])
+        
+        # Если текущее сообщение - фото, удаляем и отправляем текст
+        if callback.message.photo:
+            await callback.message.delete()
+            await callback.message.answer(
+                text,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+            )
+        else:
+            await callback.message.edit_text(
+                text,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+            )
+        await callback.answer()
+
+
+@router.callback_query(F.data.startswith("view_company_"))
+async def callback_view_company(callback: CallbackQuery):
+    """Показать информацию о компании"""
+    company_id = int(callback.data.split("_")[2])
+    
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(Company).where(Company.id == company_id)
+        )
+        company = result.scalar_one_or_none()
+        
+        if not company:
+            await callback.answer("Компания не найдена", show_alert=True)
+            return
+        
+        # Считаем количество вакансий от этой компании
+        vacancies_result = await session.execute(
+            select(func.count(Vacancy.id)).where(Vacancy.organization == company.name)
+        )
+        vacancies_count = vacancies_result.scalar() or 0
+        
+        # Проверяем есть ли подразделения
+        divisions_result = await session.execute(
+            select(Division).where(Division.company_id == company_id)
+        )
+        divisions = divisions_result.scalars().all()
+        
+        text = f"""
+🏢 <b>{company.name}</b>
+
+{company.description or 'Описание отсутствует'}
+
+━━━━━━━━━━━━━━━━━━━━
+📋 Вакансий: <b>{vacancies_count}</b>
+🏛️ Подразделений: <b>{len(divisions)}</b>
+"""
+        
+        # Формируем клавиатуру
+        keyboard_buttons = []
+        if divisions:
+            keyboard_buttons.append([InlineKeyboardButton(text="🏛️ Подразделения", callback_data=f"company_divisions_{company_id}")])
+        if vacancies_count > 0:
+            keyboard_buttons.append([InlineKeyboardButton(text="📋 Все вакансии компании", callback_data=f"company_vacancies_{company_id}")])
+        keyboard_buttons.append([InlineKeyboardButton(text="◀️ К списку компаний", callback_data="companies_list")])
+        keyboard_buttons.append([InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")])
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        
+        # Показываем картинку с caption
+        await callback.message.delete()
+        if COMPANY_IMAGE_PATH:
+            photo = FSInputFile(COMPANY_IMAGE_PATH)
+            await callback.message.answer_photo(
+                photo=photo,
+                caption=text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        else:
+            await callback.message.answer(
+                text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        await callback.answer()
+
+
+@router.callback_query(F.data.startswith("company_divisions_"))
+async def callback_company_divisions(callback: CallbackQuery):
+    """Список подразделений компании"""
+    company_id = int(callback.data.split("_")[2])
+    
+    async with async_session_maker() as session:
+        # Получаем компанию
+        company_result = await session.execute(
+            select(Company).where(Company.id == company_id)
+        )
+        company = company_result.scalar_one_or_none()
+        
+        if not company:
+            await callback.answer("Компания не найдена", show_alert=True)
+            return
+        
+        # Получаем подразделения
+        divisions_result = await session.execute(
+            select(Division).where(Division.company_id == company_id).order_by(Division.name)
+        )
+        divisions = divisions_result.scalars().all()
+        
+        if not divisions:
+            await callback.answer("У этой компании нет подразделений", show_alert=True)
+            return
+        
+        text = f"""
+🏛️ <b>Подразделения {company.name}</b>
+
+Выбери подразделение:
+"""
+        
+        # Кнопки подразделений
+        keyboard_buttons = []
+        for div in divisions:
+            keyboard_buttons.append([
+                InlineKeyboardButton(text=f"🏛️ {div.name}", callback_data=f"view_division_{div.id}")
+            ])
+        keyboard_buttons.append([InlineKeyboardButton(text="◀️ К компании", callback_data=f"view_company_{company_id}")])
+        keyboard_buttons.append([InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")])
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        
+        await callback.message.delete()
+        await callback.message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
+        await callback.answer()
+
+
+@router.callback_query(F.data.startswith("view_division_"))
+async def callback_view_division(callback: CallbackQuery):
+    """Просмотр подразделения"""
+    division_id = int(callback.data.split("_")[2])
+    
+    async with async_session_maker() as session:
+        # Получаем подразделение с компанией
+        division_result = await session.execute(
+            select(Division).where(Division.id == division_id)
+        )
+        division = division_result.scalar_one_or_none()
+        
+        if not division:
+            await callback.answer("Подразделение не найдено", show_alert=True)
+            return
+        
+        # Получаем компанию
+        company_result = await session.execute(
+            select(Company).where(Company.id == division.company_id)
+        )
+        company = company_result.scalar_one_or_none()
+        
+        # Считаем вакансии подразделения
+        vacancies_result = await session.execute(
+            select(func.count(Vacancy.id)).where(
+                Vacancy.organization == company.name,
+                Vacancy.division == division.name
+            )
+        )
+        vacancies_count = vacancies_result.scalar() or 0
+        
+        text = f"""
+🏛️ <b>{division.name}</b>
+🏢 {company.name}
+
+{division.description or 'Описание подразделения'}
+
+━━━━━━━━━━━━━━━━━━━━
+📋 Вакансий: <b>{vacancies_count}</b>
+"""
+        
+        # Формируем клавиатуру
+        keyboard_buttons = []
+        if vacancies_count > 0:
+            keyboard_buttons.append([InlineKeyboardButton(text="📋 Вакансии подразделения", callback_data=f"division_vacancies_{division_id}")])
+        keyboard_buttons.append([InlineKeyboardButton(text="◀️ К подразделениям", callback_data=f"company_divisions_{division.company_id}")])
+        keyboard_buttons.append([InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")])
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        
+        # Показываем картинку с caption
+        await callback.message.delete()
+        if DIVISION_IMAGE_PATH:
+            photo = FSInputFile(DIVISION_IMAGE_PATH)
+            await callback.message.answer_photo(
+                photo=photo,
+                caption=text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        else:
+            await callback.message.answer(
+                text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        await callback.answer()
+
+
+@router.callback_query(F.data.startswith("division_vacancies_"))
+async def callback_division_vacancies(callback: CallbackQuery):
+    """Вакансии подразделения"""
+    division_id = int(callback.data.split("_")[2])
+    
+    async with async_session_maker() as session:
+        # Получаем подразделение
+        division_result = await session.execute(
+            select(Division).where(Division.id == division_id)
+        )
+        division = division_result.scalar_one_or_none()
+        
+        if not division:
+            await callback.answer("Подразделение не найдено", show_alert=True)
+            return
+        
+        # Получаем компанию
+        company_result = await session.execute(
+            select(Company).where(Company.id == division.company_id)
+        )
+        company = company_result.scalar_one_or_none()
+        
+        # Получаем вакансии подразделения
+        vacancies_result = await session.execute(
+            select(Vacancy).where(
+                Vacancy.organization == company.name,
+                Vacancy.division == division.name
+            ).order_by(Vacancy.created_at.desc())
+        )
+        vacancies = vacancies_result.scalars().all()
+        
+        if not vacancies:
+            await callback.answer("Нет вакансий в этом подразделении", show_alert=True)
+            return
+        
+        vacancy = vacancies[0]
+        caption = format_vacancy_caption(vacancy)
+        
+        keyboard = get_vacancy_keyboard(
+            vacancy.id, 0, len(vacancies), 
+            filter_type="division", 
+            sphere=str(division_id),
+            has_company_desc=True,
+            organization=vacancy.organization
+        )
+        
+        await callback.message.delete()
+        photo = FSInputFile(VACANCY_IMAGE_PATH)
+        await callback.message.answer_photo(
+            photo=photo,
+            caption=caption,
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
+        await callback.answer()
+
+
+@router.callback_query(F.data.startswith("company_vacancies_"))
+async def callback_company_vacancies(callback: CallbackQuery):
+    """Все вакансии компании"""
+    company_id = int(callback.data.split("_")[2])
+    
+    async with async_session_maker() as session:
+        # Получаем компанию
+        company_result = await session.execute(
+            select(Company).where(Company.id == company_id)
+        )
+        company = company_result.scalar_one_or_none()
+        
+        if not company:
+            await callback.answer("Компания не найдена", show_alert=True)
+            return
+        
+        # Получаем вакансии компании
+        vacancies_result = await session.execute(
+            select(Vacancy).where(Vacancy.organization == company.name).order_by(Vacancy.created_at.desc())
+        )
+        vacancies = vacancies_result.scalars().all()
+        
+        if not vacancies:
+            await callback.answer("Нет вакансий от этой компании", show_alert=True)
+            return
+        
+        vacancy = vacancies[0]
+        caption = format_vacancy_caption(vacancy)
+        
+        keyboard = get_vacancy_keyboard(
+            vacancy.id, 0, len(vacancies), 
+            filter_type="company", 
+            sphere=str(company_id),
+            has_company_desc=True,
+            organization=vacancy.organization
+        )
+        
+        await callback.message.delete()
+        photo = FSInputFile(VACANCY_IMAGE_PATH)
+        await callback.message.answer_photo(
+            photo=photo,
+            caption=caption,
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
         await callback.answer()
 
 
@@ -782,8 +1443,8 @@ async def callback_set_faculty(callback: CallbackQuery):
         
         # Получаем новое количество вакансий
         vacancies_count = await get_user_vacancies_count(session, faculty)
-    
-    await callback.message.edit_text(
+        
+        await callback.message.edit_text(
         f"✅ Факультет изменён на: <b>{faculty}</b>\n\n"
         f"🎯 Теперь тебе доступно <b>{vacancies_count}</b> вакансий!",
         parse_mode="HTML",
@@ -794,3 +1455,139 @@ async def callback_set_faculty(callback: CallbackQuery):
         ])
     )
     await callback.answer()
+
+
+# ==================== О КОМПАНИИ ====================
+
+@router.callback_query(F.data.startswith("about_company_"))
+async def callback_about_company(callback: CallbackQuery):
+    """Показать информацию о компании"""
+    # Формат: about_company_{vacancy_id}_{filter_type}_{index}_{sphere}
+    parts = callback.data.split("_")
+    if len(parts) < 5:
+        await callback.answer("Ошибка", show_alert=True)
+        return
+    
+    vacancy_id = int(parts[2])
+    filter_type = parts[3]
+    current_index = int(parts[4])
+    sphere = parts[5] if len(parts) > 5 and parts[5] else None
+    
+    async with async_session_maker() as session:
+        # Получаем вакансию
+        result = await session.execute(
+            select(Vacancy).where(Vacancy.id == vacancy_id)
+        )
+        vacancy = result.scalar_one_or_none()
+        
+        if not vacancy:
+            await callback.answer("Вакансия не найдена", show_alert=True)
+            return
+        
+        # Получаем описание компании
+        company_result = await session.execute(
+            select(Company).where(Company.name == vacancy.organization)
+        )
+        company = company_result.scalar_one_or_none()
+        
+        if not company or not company.description:
+            await callback.answer("Описание компании не найдено", show_alert=True)
+            return
+        
+        # Формируем текст
+        text = f"🏢 <b>{vacancy.organization}</b>\n\n"
+        text += f"{company.description}"
+        
+        # Удаляем фото и показываем текст
+        await callback.message.delete()
+        
+        await callback.message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="◀️ Назад к вакансии", 
+                    callback_data=f"back_to_vac_{vacancy_id}_{filter_type}_{current_index}_{sphere or ''}"
+                )],
+                [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+            ])
+        )
+        await callback.answer()
+
+
+@router.callback_query(F.data.startswith("back_to_vac_"))
+async def callback_back_to_vacancy(callback: CallbackQuery):
+    """Вернуться к вакансии из описания компании"""
+    # Формат: back_to_vac_{vacancy_id}_{filter_type}_{index}_{sphere}
+    parts = callback.data.split("_")
+    if len(parts) < 6:
+        await callback.answer("Ошибка", show_alert=True)
+        return
+    
+    vacancy_id = int(parts[3])
+    filter_type = parts[4]
+    current_index = int(parts[5])
+    sphere = parts[6] if len(parts) > 6 and parts[6] else None
+    
+    async with async_session_maker() as session:
+        # Получаем вакансию
+        result = await session.execute(
+            select(Vacancy).where(Vacancy.id == vacancy_id)
+        )
+        vacancy = result.scalar_one_or_none()
+        
+        if not vacancy:
+            await callback.answer("Вакансия не найдена", show_alert=True)
+            return
+        
+        # Получаем общее количество вакансий для правильной навигации
+        if filter_type == "my":
+            user_result = await session.execute(
+                select(User).where(User.telegram_id == callback.from_user.id)
+            )
+            user = user_result.scalar_one_or_none()
+            if user and user.faculty:
+                db_field = FACULTY_TO_DB_FIELD.get(user.faculty)
+                if db_field:
+                    filter_condition = getattr(Vacancy, db_field) == True
+                    count_result = await session.execute(
+                        select(func.count(Vacancy.id)).where(filter_condition)
+                    )
+                    total = count_result.scalar() or 1
+                else:
+                    total = 1
+            else:
+                total = 1
+        elif filter_type == "sphere" and sphere:
+            count_result = await session.execute(
+                select(func.count(Vacancy.id)).where(Vacancy.sphere == sphere)
+            )
+            total = count_result.scalar() or 1
+        else:
+            count_result = await session.execute(
+                select(func.count(Vacancy.id))
+            )
+            total = count_result.scalar() or 1
+        
+        # Формируем caption
+        if filter_type == "sphere" and sphere:
+            emoji = SPHERE_EMOJI.get(sphere, "💼")
+            caption = f"{emoji} <b>Сфера: {sphere}</b>\n\n" + format_vacancy_caption(vacancy)
+        else:
+            caption = format_vacancy_caption(vacancy)
+        
+        # Проверяем есть ли описание компании
+        has_company_desc = await check_company_has_description(session, vacancy.organization)
+        
+        # Удаляем текст и отправляем фото
+        await callback.message.delete()
+        
+        photo = FSInputFile(VACANCY_IMAGE_PATH)
+        
+        await callback.message.answer_photo(
+            photo=photo,
+            caption=caption,
+            parse_mode="HTML",
+            reply_markup=get_vacancy_keyboard(vacancy.id, current_index, total, filter_type, sphere, has_company_desc=has_company_desc, organization=vacancy.organization)
+        )
+        await callback.answer()

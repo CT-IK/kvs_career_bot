@@ -11,8 +11,16 @@ import os
 import hashlib
 from pathlib import Path
 
-# Папка для кэша изображений
-CACHE_DIR = Path("/app/cache/images")
+# Папка для кэша изображений (работает и в Docker, и локально)
+def get_cache_dir() -> Path:
+    """Определить папку кэша в зависимости от окружения"""
+    # Если запущено в Docker (/app существует и доступен для записи)
+    if os.path.exists("/app") and os.access("/app", os.W_OK):
+        return Path("/app/cache/images")
+    # Локальный запуск - используем директорию проекта
+    return Path(__file__).parent.parent / "cache" / "images"
+
+CACHE_DIR = get_cache_dir()
 
 # Цветовая палитра брендбука
 COLORS = {
