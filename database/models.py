@@ -13,6 +13,7 @@ class User(Base):
     telegram_id = Column(BigInteger, unique=True, nullable=False, index=True)
     first_name = Column(String(100))
     last_name = Column(String(100))
+    patronymic = Column(String(100), nullable=True)
     course = Column(Integer)
     faculty = Column(String(50))
     info_source = Column(String(100))

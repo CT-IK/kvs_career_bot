@@ -5,9 +5,11 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ErrorEvent
 from aiogram.exceptions import TelegramBadRequest
 from config import BOT_TOKEN
-from database.db import init_db
-from handlers import registration, admin, vacancies
+from database.db import init_db, async_session_maker
+from handlers import registration, admin, vacancies, subscription
 from middleware.activity import ActivityMiddleware
+from middleware.subscription import SubscriptionMiddleware
+from services.google_sheets import ensure_vacancies_seeded
 from services.image_generator import pregenerate_vacancy_images
 
 # Настройка логирования
@@ -34,6 +36,14 @@ async def main():
     except Exception as e:
         logger.error(f"Ошибка при инициализации БД: {e}")
         return
+
+    logger.info("Проверка вакансий в БД...")
+    try:
+        async with async_session_maker() as session:
+            seeded_count = await ensure_vacancies_seeded(session)
+        logger.info("Вакансии в БД: %s", seeded_count)
+    except Exception as e:
+        logger.warning(f"Не удалось выполнить начальную синхронизацию вакансий: {e}")
     
     # Прегенерация изображений вакансий (создаём недостающие)
     logger.info("Проверка кэша изображений...")
@@ -48,8 +58,11 @@ async def main():
     
     # Регистрация middleware
     dp.update.middleware(ActivityMiddleware())
+    dp.message.middleware(SubscriptionMiddleware())
+    dp.callback_query.middleware(SubscriptionMiddleware(allowed_callback_data={"check_subscription"}))
     
     # Регистрация роутеров (порядок важен!)
+    dp.include_router(subscription.router)
     # vacancies первым - там /start для всех
     dp.include_router(vacancies.router)
     dp.include_router(registration.router)

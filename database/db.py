@@ -1,12 +1,23 @@
+import sys
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import select
+from sqlalchemy import select, text
 from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, SEED_DEMO_DATA
 
 DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+def _safe_print(message: str) -> None:
+    """Print logs without crashing on non-UTF8 Windows consoles."""
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        sanitized = message.encode(encoding, errors="replace").decode(encoding, errors="replace")
+        print(sanitized)
 
 async def get_session():
     async with async_session_maker() as session:
@@ -18,12 +29,13 @@ async def init_db():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        print("✅ Таблицы базы данных успешно созданы/проверены")
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS patronymic VARCHAR(100)"))
+        _safe_print("✅ Таблицы базы данных успешно созданы/проверены")
         
         if SEED_DEMO_DATA:
             await seed_demo_data()
     except Exception as e:
-        print(f"❌ Ошибка при создании таблиц: {e}")
+        _safe_print(f"❌ Ошибка при создании таблиц: {e}")
         raise
 
 
@@ -88,9 +100,9 @@ async def seed_demo_data():
                     )
                     session.add(division)
                 
-                print(f"✅ Добавлена компания: {company_data['name']} с {len(company_data['divisions'])} подразделениями")
+                _safe_print(f"✅ Добавлена компания: {company_data['name']} с {len(company_data['divisions'])} подразделениями")
         
         await session.commit()
     
-    print("✅ Демо-данные загружены")
+    _safe_print("✅ Демо-данные загружены")
 

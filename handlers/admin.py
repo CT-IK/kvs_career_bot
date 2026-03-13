@@ -1,6 +1,6 @@
 import html
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -21,6 +21,12 @@ class CompanyEditStates(StatesGroup):
     waiting_for_description = State()
 
 
+class AdminReplyStates(StatesGroup):
+    """FSM states for replying to user feedback."""
+
+    waiting_for_reply = State()
+
+
 def is_admin(user_id: int) -> bool:
     """Return True when user is bot admin."""
     return user_id in ADMIN_IDS
@@ -33,7 +39,7 @@ def get_admin_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🔄 Синхронизировать вакансии", callback_data="admin_sync")],
             [InlineKeyboardButton(text="🏢 Компании", callback_data="admin_companies")],
             [InlineKeyboardButton(text="📊 Обновить статистику", callback_data="admin_stats")],
-            [InlineKeyboardButton(text="🏠 В главное меню", callback_data="main_menu")],
+            [InlineKeyboardButton(text="Меню", callback_data="main_menu")],
         ]
     )
 
@@ -125,35 +131,45 @@ def companies_keyboard(companies: list[Company], back_callback: str = "admin_bac
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def get_reply_cancel_keyboard() -> InlineKeyboardMarkup:
+    """Build keyboard for cancelling the reply mode."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="Отмена", callback_data="admin_reply_cancel")]]
+    )
+
+
 @router.message(Command("admin"))
-async def cmd_admin(message: Message) -> None:
+async def cmd_admin(message: Message, state: FSMContext) -> None:
     """Open admin panel."""
     if not is_admin(message.from_user.id):
         await message.answer("❌ У тебя нет доступа к админ панели.")
         return
 
+    await state.clear()
     await message.answer("🔐", reply_markup=ReplyKeyboardRemove())
     await message.answer(await get_stats_text(), parse_mode="HTML", reply_markup=get_admin_keyboard())
 
 
 @router.callback_query(F.data == "admin_stats")
-async def callback_admin_stats(callback: CallbackQuery) -> None:
+async def callback_admin_stats(callback: CallbackQuery, state: FSMContext) -> None:
     """Refresh admin panel stats."""
     if not is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
+    await state.clear()
     await callback.message.edit_text(await get_stats_text(), parse_mode="HTML", reply_markup=get_admin_keyboard())
     await callback.answer("📊 Статистика обновлена")
 
 
 @router.callback_query(F.data == "admin_sync")
-async def callback_admin_sync(callback: CallbackQuery) -> None:
+async def callback_admin_sync(callback: CallbackQuery, state: FSMContext) -> None:
     """Sync vacancies from Google Sheets via inline button."""
     if not is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
+    await state.clear()
     await callback.answer("🔄 Начинаю синхронизацию...")
     await callback.message.edit_text(
         "🔄 <b>Синхронизация вакансий...</b>\n\n⏳ Загружаю данные из Google Sheets...",
@@ -177,12 +193,13 @@ async def callback_admin_sync(callback: CallbackQuery) -> None:
 
 
 @router.message(Command("sync_vacancies"))
-async def cmd_sync_vacancies(message: Message) -> None:
+async def cmd_sync_vacancies(message: Message, state: FSMContext) -> None:
     """Sync vacancies from Google Sheets via command."""
     if not is_admin(message.from_user.id):
         await message.answer("❌ У тебя нет доступа к этой команде.")
         return
 
+    await state.clear()
     await message.answer(
         "🔄 <b>Синхронизация вакансий...</b>\n\n⏳ Загружаю данные из Google Sheets...",
         parse_mode="HTML",
@@ -205,12 +222,13 @@ async def cmd_sync_vacancies(message: Message) -> None:
 
 
 @router.callback_query(F.data == "admin_companies")
-async def callback_admin_companies(callback: CallbackQuery) -> None:
+async def callback_admin_companies(callback: CallbackQuery, state: FSMContext) -> None:
     """Show companies list for admin description editing."""
     if not is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
+    await state.clear()
     await ensure_companies_from_vacancies()
     async with async_session_maker() as session:
         companies = (
@@ -335,7 +353,47 @@ async def callback_company_delete_desc(callback: CallbackQuery, state: FSMContex
 
     await state.clear()
     await callback.answer("🗑 Описание удалено")
-    await callback_admin_companies(callback)
+    await callback_admin_companies(callback, state)
+
+
+@router.callback_query(F.data.startswith("admin_reply_"))
+async def callback_admin_reply(callback: CallbackQuery, state: FSMContext) -> None:
+    """Start reply flow for a specific user."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    if callback.data == "admin_reply_cancel":
+        await state.clear()
+        await callback.message.edit_reply_markup()
+        await callback.message.answer("Режим ответа отменён.")
+        await callback.answer()
+        return
+
+    try:
+        user_id = int(callback.data.replace("admin_reply_", ""))
+    except ValueError:
+        await callback.answer("Некорректный ID пользователя", show_alert=True)
+        return
+
+    async with async_session_maker() as session:
+        user = (await session.execute(select(User).where(User.telegram_id == user_id))).scalar_one_or_none()
+
+    if user and (user.first_name or user.last_name):
+        user_label = html.escape(" ".join(part for part in [user.first_name, user.last_name] if part))
+    else:
+        user_label = f"ID {user_id}"
+
+    await state.set_state(AdminReplyStates.waiting_for_reply)
+    await state.update_data(reply_user_id=user_id)
+
+    await callback.message.answer(
+        f"Ответ пользователю <b>{user_label}</b>.\n\n"
+        "Отправь следующее сообщение, и бот отправит его пользователю от своего имени.",
+        parse_mode="HTML",
+        reply_markup=get_reply_cancel_keyboard(),
+    )
+    await callback.answer("Режим ответа включён")
 
 
 @router.message(CompanyEditStates.waiting_for_description)
@@ -378,6 +436,44 @@ async def process_company_description(message: Message, state: FSMContext) -> No
             ]
         ),
     )
+
+
+@router.message(AdminReplyStates.waiting_for_reply)
+async def process_admin_reply(message: Message, state: FSMContext, bot: Bot) -> None:
+    """Send admin reply to the selected user from the bot chat."""
+    if not is_admin(message.from_user.id):
+        await state.clear()
+        return
+
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        return
+
+    data = await state.get_data()
+    user_id = data.get("reply_user_id")
+    if not user_id:
+        await state.clear()
+        await message.answer("Не удалось определить получателя. Попробуй ещё раз.")
+        return
+
+    try:
+        await bot.copy_message(
+            chat_id=user_id,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
+    except Exception:
+        if not message.text:
+            await message.answer(
+                "Не удалось отправить это сообщение пользователю. Попробуй текстовое сообщение.",
+                reply_markup=get_reply_cancel_keyboard(),
+            )
+            return
+
+        await bot.send_message(user_id, message.text)
+
+    await state.clear()
+    await message.answer("Ответ отправлен пользователю.")
 
 
 @router.callback_query(F.data == "admin_back")

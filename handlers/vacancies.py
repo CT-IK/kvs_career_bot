@@ -11,6 +11,17 @@ from pathlib import Path
 from database.models import User, Vacancy, Company, Division
 from database.db import async_session_maker
 from config import FACULTIES, ADMIN_IDS
+from services.course_utils import COURSE_LEVELS, format_course_label, parse_course_callback
+from services.user_names import format_full_name, validate_name_part
+
+
+def get_feedback_admin_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """Build keyboard for admin actions on user feedback."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Ответить пользователю", callback_data=f"admin_reply_{user_id}")]
+        ]
+    )
 
 
 def resolve_image_path(*candidates: Path) -> Path | None:
@@ -70,28 +81,17 @@ FACULTY_TO_DB_FIELD = {
 }
 
 # Эмодзи для сфер
-SPHERE_EMOJI = {
-    "IT": "💻",
-    "Финансы": "💰",
-    "Маркетинг": "📢",
-    "Юриспруденция": "⚖️",
-    "Логистика": "🚛",
-    "Образование": "📚",
-    "Медицина": "🏥",
-    "Строительство": "🏗️",
-    "Торговля": "🛒",
-    "Консалтинг": "📊",
-}
+
 
 
 def get_main_menu_keyboard(user_faculty: str = None, vacancies_count: int = 0):
     """Главное меню с кнопками"""
     keyboard = [
-        [InlineKeyboardButton(text="👤 Мой профиль", callback_data="profile")],
-        [InlineKeyboardButton(text="💬 Обратная связь", callback_data="feedback")],
-        [InlineKeyboardButton(text="🏢 Компании-партнёры", callback_data="companies_list")],
-        [InlineKeyboardButton(text="📋 Вакансии", callback_data="vacancies_menu")],
-        [InlineKeyboardButton(text="ℹ️ О нас", callback_data="about_us")],
+        [InlineKeyboardButton(text="Мой профиль", callback_data="profile")],
+        [InlineKeyboardButton(text="Обратная связь", callback_data="feedback")],
+        [InlineKeyboardButton(text="Компании-партнёры", callback_data="companies_list")],
+        [InlineKeyboardButton(text="Вакансии", callback_data="vacancies_menu")],
+        [InlineKeyboardButton(text="О нас", callback_data="about_us")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -105,12 +105,12 @@ def get_vacancy_keyboard(vacancy_id: int, current_index: int, total: int, filter
     
     # Кнопка "В начало" если не на первой
     if current_index > 0:
-        nav_buttons.append(InlineKeyboardButton(text="⏮️", callback_data=f"vac_{filter_type}_0_{sphere or ''}"))
+        nav_buttons.append(InlineKeyboardButton(text="❮❮", callback_data=f"vac_{filter_type}_0_{sphere or ''}"))
     
     # Кнопка "Назад"
     if current_index > 0:
         nav_buttons.append(InlineKeyboardButton(
-            text="◀️", 
+            text="❮",
             callback_data=f"vac_{filter_type}_{current_index - 1}_{sphere or ''}"
         ))
     
@@ -123,28 +123,28 @@ def get_vacancy_keyboard(vacancy_id: int, current_index: int, total: int, filter
     # Кнопка "Вперед"
     if current_index < total - 1:
         nav_buttons.append(InlineKeyboardButton(
-            text="▶️", 
+            text="❯",
             callback_data=f"vac_{filter_type}_{current_index + 1}_{sphere or ''}"
         ))
     
     # Кнопка "В конец" если не на последней
     if current_index < total - 1:
-        nav_buttons.append(InlineKeyboardButton(text="⏭️", callback_data=f"vac_{filter_type}_{total - 1}_{sphere or ''}"))
+        nav_buttons.append(InlineKeyboardButton(text="❯❯", callback_data=f"vac_{filter_type}_{total - 1}_{sphere or ''}"))
 
     keyboard.append(nav_buttons)
     
     # Кнопка "О компании" если есть описание
     if has_company_desc and organization:
         keyboard.append([InlineKeyboardButton(
-            text="🏢 О компании", 
+            text="О компании",
             callback_data=f"about_company_{vacancy_id}_{filter_type}_{current_index}_{sphere or ''}"
         )])
     
     # Последняя строка - действия
     action_buttons = []
     if filter_type == "sphere" and sphere:
-        action_buttons.append(InlineKeyboardButton(text="📂 К сферам", callback_data="vacancies_by_sphere"))
-    action_buttons.append(InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu"))
+        action_buttons.append(InlineKeyboardButton(text="К сферам", callback_data="vacancies_by_sphere"))
+    action_buttons.append(InlineKeyboardButton(text="Меню", callback_data="main_menu"))
     keyboard.append(action_buttons)
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -162,31 +162,31 @@ async def check_company_has_description(session, organization: str) -> bool:
 
 def format_vacancy_caption(vacancy: Vacancy) -> str:
     """Форматирование вакансии для caption под картинкой (до 1024 символов)"""
-    sphere_emoji = SPHERE_EMOJI.get(vacancy.sphere, "💼")
+
     
     # Компактный формат для caption
     lines = [
-        f"🏢 <b>{vacancy.organization}</b>",
-        f"📌 <b>{vacancy.position}</b>",
+        f"💼<b>Вакансия: </b>{vacancy.organization}",
+        f"<b>Компания: </b>{vacancy.position}",
         ""
     ]
     
     # Основная информация
     if vacancy.sphere:
-        lines.append(f"{sphere_emoji} {vacancy.sphere}")
+        lines.append(f"<b>Сфера: </b>{vacancy.salary}")
     if vacancy.salary:
-        lines.append(f"💵 {vacancy.salary}")
+        lines.append(f"<b>Зарплата: </b>{vacancy.sphere}")
     if vacancy.schedule:
-        lines.append(f"⏰ {vacancy.schedule}")
+        lines.append(f"<b>График: </b>{vacancy.schedule}")
     if vacancy.work_format:
-        lines.append(f"📍 {vacancy.work_format}")
+        lines.append(f"<b>Формат: </b>{vacancy.work_format}")
     if vacancy.employment_format:
-        lines.append(f"📋 {vacancy.employment_format}")
+        lines.append(f"<b>Тип занятости: </b>{vacancy.employment_format}")
     
     # Описание (краткое)
     if vacancy.description:
         desc = vacancy.description[:150] + "..." if len(vacancy.description) > 150 else vacancy.description
-        lines.append(f"\n📝 {desc}")
+        lines.append(f"\n<blockquote>{desc}</blockquote>")
     
     text = "\n".join(lines)
     
@@ -200,36 +200,30 @@ def format_vacancy_caption(vacancy: Vacancy) -> str:
 def format_vacancy(vacancy: Vacancy, show_match: bool = False, user_faculty: str = None) -> str:
     """Форматирование вакансии для текстового отображения (используется в меню без картинок)"""
     # Определяем эмодзи для сферы
-    sphere_emoji = SPHERE_EMOJI.get(vacancy.sphere, "💼")
-    
-    # Заголовок с организацией
-    text = f"━━━━━━━━━━━━━━━━━━━━\n"
-    text += f"🏢 <b>{vacancy.organization}</b>\n"
-    text += f"━━━━━━━━━━━━━━━━━━━━\n\n"
-    
-    # Должность (крупно)
-    text += f"📌 <b>{vacancy.position}</b>\n\n"
-    
-    # Основная информация в компактном виде
-    info_lines = []
+    lines = [
+        f"💼<b>Вакансия: </b>{vacancy.organization}",
+        f"<b>Компания: </b>{vacancy.position}",
+        ""
+    ]
+
+    # Основная информация
     if vacancy.sphere:
-        info_lines.append(f"{sphere_emoji} {vacancy.sphere}")
+        lines.append(f"<b>Сфера: </b>{vacancy.salary}")
     if vacancy.salary:
-        info_lines.append(f"💵 {vacancy.salary}")
+        lines.append(f"<b>Зарплата: </b>{vacancy.sphere}")
     if vacancy.schedule:
-        info_lines.append(f"⏰ {vacancy.schedule}")
+        lines.append(f"<b>График: </b>{vacancy.schedule}")
     if vacancy.work_format:
-        info_lines.append(f"📍 {vacancy.work_format}")
+        lines.append(f"<b>Формат: </b>{vacancy.work_format}")
     if vacancy.employment_format:
-        info_lines.append(f"📋 {vacancy.employment_format}")
-    
-    if info_lines:
-        text += "\n".join(info_lines) + "\n"
-    
-    # Описание
+        lines.append(f"<b>Тип занятости: </b>{vacancy.employment_format}")
+
+    # Описание (краткое)
     if vacancy.description:
-        desc = vacancy.description[:300] + "..." if len(vacancy.description) > 300 else vacancy.description
-        text += f"\n📝 {desc}\n"
+        desc = vacancy.description[:150] + "..." if len(vacancy.description) > 150 else vacancy.description
+        lines.append(f"\n<blockquote>{desc}</blockquote>")
+
+    text = "\n".join(lines)
     
     # Особенности (бейджи)
     features = []
@@ -259,39 +253,35 @@ async def get_user_vacancies_count(session, user_faculty: str) -> int:
     return result.scalar() or 0
 
 
-@router.message(Command("start"))
-async def cmd_start(message: Message, state: FSMContext):
-    """Обработчик команды /start - главное меню"""
+async def show_main_menu_or_registration(message: Message, state: FSMContext, user_id: int):
+    """Show registration flow for new users or the main menu for existing ones."""
     await state.clear()
-    
+
     async with async_session_maker() as session:
         result = await session.execute(
-            select(User).where(User.telegram_id == message.from_user.id)
+            select(User).where(User.telegram_id == user_id)
         )
         user = result.scalar_one_or_none()
-        
+
         if not user or not user.is_registered:
-            # Не зарегистрирован - показываем приветствие для регистрации
             from handlers.registration import start_registration
+
             await start_registration(message, state)
             return
-        
-        # Получаем количество вакансий для пользователя
+
         vacancies_count = await get_user_vacancies_count(session, user.faculty)
-        
-        # Красивое приветствие
+
         welcome_text = f"""
-🎓 <b>Комитет Внешних Связей</b>
+❤️ <b>Комитет Внешних Связей</b> 🖤
 
-Привет, <b>{user.first_name}</b>! 👋
+Привет, <b>{user.first_name}</b>! 
 
-📚 Факультет: <b>{user.faculty}</b>
-🎯 Для тебя: <b>{vacancies_count}</b> вакансий
+Для тебя сейчас: <b>{vacancies_count}</b> вакансий
 
 Выбери действие:
 """
         keyboard = get_main_menu_keyboard(user.faculty, vacancies_count)
-        
+
         if MENU_IMAGE_PATH:
             photo = FSInputFile(MENU_IMAGE_PATH)
             await message.answer_photo(
@@ -306,6 +296,12 @@ async def cmd_start(message: Message, state: FSMContext):
                 parse_mode="HTML",
                 reply_markup=keyboard
             )
+
+
+@router.message(Command("start"))
+async def cmd_start(message: Message, state: FSMContext):
+    """Обработчик команды /start - главное меню"""
+    await show_main_menu_or_registration(message, state, message.from_user.id)
 
 
 @router.message(Command("vacancies"))
@@ -327,12 +323,11 @@ async def cmd_vacancies(message: Message):
         vacancies_count = await get_user_vacancies_count(session, user.faculty)
         
         welcome_text = f"""
-🎓 <b>Комитет Внешних Связей</b>
+❤️ <b>Комитет Внешних Связей</b> 🖤
 
-Привет, <b>{user.first_name}</b>! 👋
+Привет, <b>{user.first_name}</b>! 
 
-📚 Факультет: <b>{user.faculty}</b>
-🎯 Для тебя: <b>{vacancies_count}</b> вакансий
+Для тебя сейчас: <b>{vacancies_count}</b> вакансий
 
 Выбери действие:
 """
@@ -370,12 +365,11 @@ async def callback_main_menu(callback: CallbackQuery):
         vacancies_count = await get_user_vacancies_count(session, user.faculty)
         
         welcome_text = f"""
-🎓 <b>Комитет Внешних Связей</b>
+❤️ <b>Комитет Внешних Связей</b> 🖤
 
-Привет, <b>{user.first_name}</b>! 👋
+Привет, <b>{user.first_name}</b>! 
 
-📚 Факультет: <b>{user.faculty}</b>
-🎯 Для тебя: <b>{vacancies_count}</b> вакансий
+Для тебя сейчас: <b>{vacancies_count}</b> вакансий
 
 Выбери действие:
 """
@@ -410,16 +404,14 @@ async def callback_noop(callback: CallbackQuery):
 async def callback_feedback(callback: CallbackQuery, state: FSMContext):
     """Обратная связь"""
     text = """
-╔══════════════════════════╗
         💬 <b>Обратная связь</b>
-╚══════════════════════════╝
 
 Напиши своё сообщение, и мы обязательно его получим!
 
 <i>Это может быть вопрос, предложение или сообщение о проблеме.</i>
 """
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="main_menu")]
+        [InlineKeyboardButton(text="Отмена", callback_data="main_menu")]
     ])
     
     if callback.message.photo:
@@ -436,14 +428,14 @@ async def callback_feedback(callback: CallbackQuery, state: FSMContext):
 async def callback_about_us(callback: CallbackQuery):
     """О нас"""
     text = """
-ℹ️ <b>О Комитете Внешних Связей</b>
+❤️ <b>О Комитете Внешних Связей</b> 🖤
 
-Комитет Внешних Связей — это студенческая организация, которая помогает студентам находить стажировки и вакансии от лучших компаний-партнёров.
+Комитет Внешних Связей — это часть Студенческого совета Финансового Университета, которая отвечает за взаимодействие со внешними организациями, партнёрами и спонсорами и помогает студентам с карьерой и возможностями вне учёбы.
 
-🎯 <b>Наша миссия:</b>
+<b>Наша миссия:</b>
 Помочь каждому студенту найти работу мечты и начать успешную карьеру.
 
-📌 <b>Что мы делаем:</b>
+<b>Что мы делаем:</b>
 • Собираем актуальные вакансии
 • Сотрудничаем с топовыми компаниями
 • Помогаем с трудоустройством
@@ -451,7 +443,7 @@ async def callback_about_us(callback: CallbackQuery):
 💼 <b>Присоединяйся к нам!</b>
 """
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+        [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
     ])
     
     await callback.message.delete()
@@ -482,7 +474,10 @@ async def process_feedback_message(message: Message, state: FSMContext, bot: Bot
     
     # Формируем сообщение для админов
     user_info_raw = f"@{message.from_user.username}" if message.from_user.username else f"ID: {message.from_user.id}"
-    user_name_raw = f"{user.first_name} {user.last_name}" if user else message.from_user.full_name
+    user_name_raw = (
+        format_full_name(user.first_name, user.last_name, user.patronymic)
+        if user else message.from_user.full_name
+    )
     faculty_raw = user.faculty if user else "Не указан"
     feedback_text = message.text or message.caption or "[Не текстовое сообщение]"
 
@@ -492,11 +487,11 @@ async def process_feedback_message(message: Message, state: FSMContext, bot: Bot
     feedback_text = html.escape(feedback_text)
     
     admin_text = f"""
-📩 <b>Новое сообщение обратной связи</b>
+<b>Новое сообщение обратной связи</b>
 
-👤 <b>От:</b> {user_name}
-📱 <b>Контакт:</b> {user_info}
-🏛️ <b>Факультет:</b> {faculty}
+<b>От:</b> {user_name}
+<b>Контакт:</b> {user_info}
+<b>Факультет:</b> {faculty}
 
 ━━━━━━━━━━━━━━━━━━━━
 💬 <b>Сообщение:</b>
@@ -507,7 +502,12 @@ async def process_feedback_message(message: Message, state: FSMContext, bot: Bot
     sent_count = 0
     for admin_id in ADMIN_IDS:
         try:
-            await bot.send_message(admin_id, admin_text, parse_mode="HTML")
+            await bot.send_message(
+                admin_id,
+                admin_text,
+                parse_mode="HTML",
+                reply_markup=get_feedback_admin_keyboard(message.from_user.id),
+            )
             sent_count += 1
         except Exception:
             pass
@@ -518,7 +518,7 @@ async def process_feedback_message(message: Message, state: FSMContext, bot: Bot
         "Спасибо за обратную связь. Мы постараемся ответить как можно скорее.",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+            [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
         ])
     )
 
@@ -539,18 +539,16 @@ async def callback_vacancies_menu(callback: CallbackQuery):
         vacancies_count = await get_user_vacancies_count(session, user.faculty)
         
         text = f"""
-╔══════════════════════════╗
-          📋 <b>Вакансии</b>
-╚══════════════════════════╝
+          <b>Вакансии</b>
 
 Выбери способ просмотра:
 """
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"🎯 Для меня ({vacancies_count})", callback_data="my_vacancies")],
-            [InlineKeyboardButton(text="🔍 Все вакансии", callback_data="all_vacancies")],
-            [InlineKeyboardButton(text="📂 По сферам", callback_data="vacancies_by_sphere")],
-            [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+            [InlineKeyboardButton(text=f"Для меня ({vacancies_count})", callback_data="my_vacancies")],
+            [InlineKeyboardButton(text="Все вакансии", callback_data="all_vacancies")],
+            [InlineKeyboardButton(text="По сферам", callback_data="vacancies_by_sphere")],
+            [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
         ])
         
         if callback.message.photo:
@@ -592,8 +590,8 @@ async def callback_my_vacancies(callback: CallbackQuery):
                 "Попробуй посмотреть все вакансии или зайди позже.",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🔍 Все вакансии", callback_data="all_vacancies")],
-                    [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+                    [InlineKeyboardButton(text="Все вакансии", callback_data="all_vacancies")],
+                    [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
                 ])
             )
             await callback.answer()
@@ -635,7 +633,7 @@ async def callback_all_vacancies(callback: CallbackQuery):
                 "Администратор может синхронизировать их из Google Sheets.",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+                    [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
                 ])
             )
             await callback.answer()
@@ -674,12 +672,12 @@ async def callback_vacancies_by_sphere(callback: CallbackQuery):
         )
         spheres = result.all()
         
-        text = "📂 <b>Выбери сферу:</b>\n\n" \
+        text = "<b>Выбери сферу:</b>\n\n" \
                "Нажми на интересующую сферу, чтобы посмотреть вакансии:"
         
         if not spheres:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+                [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
             ])
             text = "😔 Нет вакансий для фильтрации по сферам."
         else:
@@ -690,7 +688,7 @@ async def callback_vacancies_by_sphere(callback: CallbackQuery):
                     text=f"{emoji} {sphere} ({count})",
                     callback_data=f"sphere_{sphere}"
                 )])
-            keyboard_rows.append([InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")])
+            keyboard_rows.append([InlineKeyboardButton(text="Меню", callback_data="main_menu")])
             keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
         
         # Если текущее сообщение - фото, удаляем и отправляем текст
@@ -725,8 +723,8 @@ async def callback_sphere_vacancies(callback: CallbackQuery):
             await callback.message.edit_text(
                 f"😔 Нет вакансий в сфере «{sphere}»",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="📂 К сферам", callback_data="vacancies_by_sphere")],
-                    [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+                    [InlineKeyboardButton(text="К сферам", callback_data="vacancies_by_sphere")],
+                    [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
                 ])
             )
             await callback.answer()
@@ -885,25 +883,24 @@ async def callback_profile(callback: CallbackQuery):
         vacancies_count = await get_user_vacancies_count(session, user.faculty)
         
         text = f"""
-╔══════════════════════════╗
           👤 <b>Мой профиль</b>
-╚══════════════════════════╝
 
-👤 <b>Имя:</b> {user.first_name}
-👤 <b>Фамилия:</b> {user.last_name}
-🎓 <b>Курс:</b> {user.course}
-🏛️ <b>Факультет:</b> {user.faculty}
-📢 <b>Откуда узнал:</b> {user.info_source}
+<b>Имя:</b> {user.first_name}
+<b>Фамилия:</b> {user.last_name}
+<b>Отчество:</b> {user.patronymic or "--"}
+<b>Курс:</b> {format_course_label(user.course)}
+<b>Факультет:</b> {user.faculty}
+<b>Откуда узнал:</b> {user.info_source}
 
-━━━━━━━━━━━━━━━━━━━━
-🎯 Доступно вакансий: <b>{vacancies_count}</b>
+
+Доступно вакансий: <b>{vacancies_count}</b>
 """
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Изменить имя", callback_data="edit_name")],
-            [InlineKeyboardButton(text="🎓 Изменить курс", callback_data="edit_course")],
-            [InlineKeyboardButton(text="🏛️ Изменить факультет", callback_data="edit_faculty")],
-            [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+            [InlineKeyboardButton(text="Изменить ФИО", callback_data="edit_name")],
+            [InlineKeyboardButton(text="Изменить курс", callback_data="edit_course")],
+            [InlineKeyboardButton(text="Изменить факультет", callback_data="edit_faculty")],
+            [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
         ])
         
         # Если текущее сообщение - фото, удаляем и отправляем текст
@@ -927,9 +924,28 @@ async def callback_profile(callback: CallbackQuery):
 async def callback_companies_list(callback: CallbackQuery):
     """Показать список компаний для пользователя"""
     async with async_session_maker() as session:
-        # Получаем все компании с описаниями
+        vacancy_companies_result = await session.execute(
+            select(distinct(Vacancy.organization))
+            .where(Vacancy.organization.isnot(None), Vacancy.organization != "")
+        )
+        vacancy_companies = {row[0] for row in vacancy_companies_result.all() if row[0]}
+
+        if vacancy_companies:
+            existing_companies_result = await session.execute(
+                select(Company).where(Company.name.in_(vacancy_companies))
+            )
+            existing_company_names = {company.name for company in existing_companies_result.scalars().all()}
+            missing_company_names = sorted(vacancy_companies - existing_company_names)
+            for company_name in missing_company_names:
+                session.add(Company(name=company_name, description=None))
+            if missing_company_names:
+                await session.commit()
+
+        # Получаем все компании, даже если описание пока не заполнено
         result = await session.execute(
-            select(Company).where(Company.description.isnot(None)).order_by(Company.name)
+            select(Company)
+            .where(Company.name.isnot(None), Company.name != "")
+            .order_by(Company.name)
         )
         companies = result.scalars().all()
         
@@ -938,31 +954,29 @@ async def callback_companies_list(callback: CallbackQuery):
             if callback.message.photo:
                 await callback.message.delete()
                 await callback.message.answer(
-                    "🏢 <b>Компании</b>\n\n"
+                    "<b>Компании</b>\n\n"
                     "Пока нет информации о компаниях.\n"
                     "Загляни позже!",
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+                        [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
                     ])
                 )
             else:
                 await callback.message.edit_text(
-                    "🏢 <b>Компании</b>\n\n"
+                    "<b>Компании</b>\n\n"
                     "Пока нет информации о компаниях.\n"
                     "Загляни позже!",
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+                        [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
                     ])
                 )
             await callback.answer()
             return
         
         text = f"""
-╔══════════════════════════╗
-          🏢 <b>Компании</b>
-╚══════════════════════════╝
+          <b>Компании</b>
 
 Выбери компанию, чтобы узнать о ней больше:
 """
@@ -972,11 +986,11 @@ async def callback_companies_list(callback: CallbackQuery):
         for company in companies:
             keyboard.append([
                 InlineKeyboardButton(
-                    text=f"🏢 {company.name}",
+                    text=f" {company.name}",
                     callback_data=f"view_company_{company.id}"
                 )
             ])
-        keyboard.append([InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")])
+        keyboard.append([InlineKeyboardButton(text="Меню", callback_data="main_menu")])
         
         # Если текущее сообщение - фото, удаляем и отправляем текст
         if callback.message.photo:
@@ -1023,23 +1037,22 @@ async def callback_view_company(callback: CallbackQuery):
         divisions = divisions_result.scalars().all()
         
         text = f"""
-🏢 <b>{company.name}</b>
+<b>{company.name}</b>
 
 {company.description or 'Описание отсутствует'}
 
-━━━━━━━━━━━━━━━━━━━━
-📋 Вакансий: <b>{vacancies_count}</b>
-🏛️ Подразделений: <b>{len(divisions)}</b>
+Вакансий: <b>{vacancies_count}</b>
+Подразделений: <b>{len(divisions)}</b>
 """
         
         # Формируем клавиатуру
         keyboard_buttons = []
         if divisions:
-            keyboard_buttons.append([InlineKeyboardButton(text="🏛️ Подразделения", callback_data=f"company_divisions_{company_id}")])
+            keyboard_buttons.append([InlineKeyboardButton(text="Подразделения", callback_data=f"company_divisions_{company_id}")])
         if vacancies_count > 0:
-            keyboard_buttons.append([InlineKeyboardButton(text="📋 Все вакансии компании", callback_data=f"company_vacancies_{company_id}")])
-        keyboard_buttons.append([InlineKeyboardButton(text="◀️ К списку компаний", callback_data="companies_list")])
-        keyboard_buttons.append([InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")])
+            keyboard_buttons.append([InlineKeyboardButton(text="Все вакансии компании", callback_data=f"company_vacancies_{company_id}")])
+        keyboard_buttons.append([InlineKeyboardButton(text="К списку компаний", callback_data="companies_list")])
+        keyboard_buttons.append([InlineKeyboardButton(text="Меню", callback_data="main_menu")])
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
         
@@ -1089,7 +1102,7 @@ async def callback_company_divisions(callback: CallbackQuery):
             return
         
         text = f"""
-🏛️ <b>Подразделения {company.name}</b>
+<b>Подразделения {company.name}</b>
 
 Выбери подразделение:
 """
@@ -1098,10 +1111,10 @@ async def callback_company_divisions(callback: CallbackQuery):
         keyboard_buttons = []
         for div in divisions:
             keyboard_buttons.append([
-                InlineKeyboardButton(text=f"🏛️ {div.name}", callback_data=f"view_division_{div.id}")
+                InlineKeyboardButton(text=f"{div.name}", callback_data=f"view_division_{div.id}")
             ])
-        keyboard_buttons.append([InlineKeyboardButton(text="◀️ К компании", callback_data=f"view_company_{company_id}")])
-        keyboard_buttons.append([InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")])
+        keyboard_buttons.append([InlineKeyboardButton(text="К компании", callback_data=f"view_company_{company_id}")])
+        keyboard_buttons.append([InlineKeyboardButton(text="Меню", callback_data="main_menu")])
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
         
@@ -1146,21 +1159,20 @@ async def callback_view_division(callback: CallbackQuery):
         vacancies_count = vacancies_result.scalar() or 0
         
         text = f"""
-🏛️ <b>{division.name}</b>
-🏢 {company.name}
+<b>{division.name}</b>
+{company.name}
 
 {division.description or 'Описание подразделения'}
 
-━━━━━━━━━━━━━━━━━━━━
-📋 Вакансий: <b>{vacancies_count}</b>
+Вакансий: <b>{vacancies_count}</b>
 """
         
         # Формируем клавиатуру
         keyboard_buttons = []
         if vacancies_count > 0:
-            keyboard_buttons.append([InlineKeyboardButton(text="📋 Вакансии подразделения", callback_data=f"division_vacancies_{division_id}")])
-        keyboard_buttons.append([InlineKeyboardButton(text="◀️ К подразделениям", callback_data=f"company_divisions_{division.company_id}")])
-        keyboard_buttons.append([InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")])
+            keyboard_buttons.append([InlineKeyboardButton(text="Вакансии подразделения", callback_data=f"division_vacancies_{division_id}")])
+        keyboard_buttons.append([InlineKeyboardButton(text="К подразделениям", callback_data=f"company_divisions_{division.company_id}")])
+        keyboard_buttons.append([InlineKeyboardButton(text="Меню", callback_data="main_menu")])
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
         
@@ -1297,11 +1309,12 @@ class EditProfileStates(StatesGroup):
 
 @router.callback_query(F.data == "edit_name")
 async def callback_edit_name(callback: CallbackQuery, state: FSMContext):
-    """Редактирование имени"""
+    """Редактирование ФИО"""
     await callback.message.edit_text(
-        "✏️ <b>Редактирование имени</b>\n\n"
-        "Введи новое имя и фамилию через пробел:\n"
-        "<i>Например: Иван Иванов</i>",
+        "✏️ <b>Редактирование ФИО</b>\n\n"
+        "Введи новое имя, фамилию и отчество через пробел.\n"
+        'Если отчества нет, напиши: <b>Нет</b>\n\n'
+        "<i>Например: Иван Иванов Нет</i>",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="❌ Отмена", callback_data="profile")]
@@ -1313,23 +1326,42 @@ async def callback_edit_name(callback: CallbackQuery, state: FSMContext):
 
 @router.message(EditProfileStates.editing_name)
 async def process_edit_name(message: Message, state: FSMContext):
-    """Обработка нового имени"""
+    """Обработка нового ФИО"""
     # Если пользователь ввёл команду - игнорируем
     if message.text and message.text.startswith('/'):
         await state.clear()
         return
     
-    parts = message.text.strip().split(maxsplit=1)
+    parts = message.text.strip().split()
     
-    if len(parts) < 2:
+    if len(parts) != 3:
         await message.answer(
-            "❌ Введи имя и фамилию через пробел.\n"
-            "<i>Например: Иван Иванов</i>",
+            "❌ Введи имя, фамилию и отчество через пробел.\n"
+            'Если отчества нет, напиши: <b>Нет</b>\n'
+            "<i>Например: Иван Иванов Нет</i>",
             parse_mode="HTML"
         )
         return
     
-    first_name, last_name = parts[0], parts[1]
+    first_name_raw, last_name_raw, patronymic_raw = parts
+    first_name_valid, first_name, first_name_error = validate_name_part(first_name_raw, "Имя")
+    if not first_name_valid:
+        await message.answer(first_name_error)
+        return
+
+    last_name_valid, last_name, last_name_error = validate_name_part(last_name_raw, "Фамилия")
+    if not last_name_valid:
+        await message.answer(last_name_error)
+        return
+
+    patronymic_valid, patronymic, patronymic_error = validate_name_part(
+        patronymic_raw,
+        "Отчество",
+        allow_none_literal=True
+    )
+    if not patronymic_valid:
+        await message.answer(patronymic_error + '\nЕсли отчества нет, напиши "Нет".')
+        return
     
     async with async_session_maker() as session:
         result = await session.execute(
@@ -1340,15 +1372,16 @@ async def process_edit_name(message: Message, state: FSMContext):
         if user:
             user.first_name = first_name
             user.last_name = last_name
+            user.patronymic = patronymic
             await session.commit()
     
     await state.clear()
     await message.answer(
-        f"✅ Имя изменено на: <b>{first_name} {last_name}</b>",
+        f"✅ ФИО изменено на: <b>{format_full_name(first_name, last_name, patronymic)}</b>",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="👤 К профилю", callback_data="profile")],
-            [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+            [InlineKeyboardButton(text="К профилю", callback_data="profile")],
+            [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
         ])
     )
 
@@ -1356,22 +1389,18 @@ async def process_edit_name(message: Message, state: FSMContext):
 @router.callback_query(F.data == "edit_course")
 async def callback_edit_course(callback: CallbackQuery, state: FSMContext):
     """Редактирование курса"""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="1", callback_data="set_course_1"),
-            InlineKeyboardButton(text="2", callback_data="set_course_2"),
-            InlineKeyboardButton(text="3", callback_data="set_course_3"),
-        ],
-        [
-            InlineKeyboardButton(text="4", callback_data="set_course_4"),
-            InlineKeyboardButton(text="5", callback_data="set_course_5"),
-            InlineKeyboardButton(text="6", callback_data="set_course_6"),
-        ],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="profile")]
-    ])
+    keyboard_rows = []
+    for level_key, level_title, years, _offset in COURSE_LEVELS:
+        keyboard_rows.append([InlineKeyboardButton(text=level_title, callback_data="noop")])
+        keyboard_rows.append([
+            InlineKeyboardButton(text=str(year), callback_data=f"set_course_{level_key}_{year}")
+            for year in years
+        ])
+    keyboard_rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="profile")])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
     
     await callback.message.edit_text(
-        "🎓 <b>Выбери свой курс:</b>",
+        "<b>Выбери свой курс:</b>",
         parse_mode="HTML",
         reply_markup=keyboard
     )
@@ -1381,7 +1410,7 @@ async def callback_edit_course(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("set_course_"))
 async def callback_set_course(callback: CallbackQuery):
     """Установка курса"""
-    course = int(callback.data.replace("set_course_", ""))
+    _level, _year, course = parse_course_callback(callback.data, "set_course")
     
     async with async_session_maker() as session:
         result = await session.execute(
@@ -1394,11 +1423,11 @@ async def callback_set_course(callback: CallbackQuery):
             await session.commit()
     
     await callback.message.edit_text(
-        f"✅ Курс изменён на: <b>{course}</b>",
+        f"✅ Курс изменён на: <b>{format_course_label(course)}</b>",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="👤 К профилю", callback_data="profile")],
-            [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+            [InlineKeyboardButton(text="К профилю", callback_data="profile")],
+            [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
         ])
     )
     await callback.answer()
@@ -1419,7 +1448,7 @@ async def callback_edit_faculty(callback: CallbackQuery):
     keyboard.append([InlineKeyboardButton(text="❌ Отмена", callback_data="profile")])
     
     await callback.message.edit_text(
-        "🏛️ <b>Выбери свой факультет:</b>",
+        "<b>Выбери свой факультет:</b>",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
     )
@@ -1446,12 +1475,12 @@ async def callback_set_faculty(callback: CallbackQuery):
         
         await callback.message.edit_text(
         f"✅ Факультет изменён на: <b>{faculty}</b>\n\n"
-        f"🎯 Теперь тебе доступно <b>{vacancies_count}</b> вакансий!",
+        f"Теперь тебе доступно <b>{vacancies_count}</b> вакансий!",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎯 Посмотреть вакансии", callback_data="my_vacancies")],
-            [InlineKeyboardButton(text="👤 К профилю", callback_data="profile")],
-            [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+            [InlineKeyboardButton(text="Посмотреть вакансии", callback_data="my_vacancies")],
+            [InlineKeyboardButton(text="К профилю", callback_data="profile")],
+            [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
         ])
     )
     await callback.answer()
@@ -1495,7 +1524,7 @@ async def callback_about_company(callback: CallbackQuery):
             return
         
         # Формируем текст
-        text = f"🏢 <b>{vacancy.organization}</b>\n\n"
+        text = f"<b>{vacancy.organization}</b>\n\n"
         text += f"{company.description}"
         
         # Удаляем фото и показываем текст
@@ -1506,10 +1535,10 @@ async def callback_about_company(callback: CallbackQuery):
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
-                    text="◀️ Назад к вакансии", 
+                    text="Назад к вакансии",
                     callback_data=f"back_to_vac_{vacancy_id}_{filter_type}_{current_index}_{sphere or ''}"
                 )],
-                [InlineKeyboardButton(text="🏠 Меню", callback_data="main_menu")]
+                [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
             ])
         )
         await callback.answer()

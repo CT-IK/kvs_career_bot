@@ -11,9 +11,28 @@ def _env_bool(name: str, default: bool = False) -> bool:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
+
+def _env_channel_username(name: str, default: str = "") -> str:
+    """Normalize channel username for Telegram API calls."""
+    value = os.getenv(name, default).strip()
+    if not value:
+        return ""
+    if value.startswith("https://t.me/"):
+        value = value.removeprefix("https://t.me/").strip("/")
+    if value.startswith("http://t.me/"):
+        value = value.removeprefix("http://t.me/").strip("/")
+    if value.startswith("@") or value.lstrip("-").isdigit():
+        return value
+    return f"@{value}"
+
 # Telegram Bot
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(","))) if os.getenv("ADMIN_IDS") else []
+REQUIRED_CHANNEL_USERNAME = _env_channel_username("REQUIRED_CHANNEL_USERNAME", "@kvskeepintouch")
+REQUIRED_CHANNEL_URL = os.getenv(
+    "REQUIRED_CHANNEL_URL",
+    f"https://t.me/{REQUIRED_CHANNEL_USERNAME.lstrip('@')}" if REQUIRED_CHANNEL_USERNAME else ""
+)
 
 # PostgreSQL
 DB_HOST = os.getenv("DB_HOST", "localhost")

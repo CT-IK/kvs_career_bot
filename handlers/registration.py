@@ -1,39 +1,59 @@
+import html
+import logging
+from pathlib import Path
+
 from aiogram import Router, F
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.models import User
 from database.db import async_session_maker
 from config import FACULTIES, INFO_SOURCES
 from datetime import datetime
+from services.course_utils import COURSE_LEVELS, format_course_label, parse_course_callback
+from services.user_names import validate_name_part
 
 router = Router()
+REGISTRATION_TOTAL_STEPS = 6
+logger = logging.getLogger(__name__)
+CONGRATULATION_GIF_PATH = Path(__file__).parent.parent / "assets" / "congratulation" / "pug.gif"
 
 
 class RegistrationStates(StatesGroup):
     waiting_for_first_name = State()
     waiting_for_last_name = State()
+    waiting_for_patronymic = State()
     waiting_for_course = State()
     waiting_for_faculty = State()
     waiting_for_info_source = State()
 
 
+def get_step_text(step: int, total: int, title: str, question: str) -> str:
+    return f"""
+❤️ <b>Комитет внешних связей</b> 🖤
+
+<b>{title}</b>
+
+Я помогу тебе найти подходящие вакансии, стажировки
+и карьерные возможности по твоему факультету. 💼
+
+<b>Шаг {step} из {total}</b>
+<blockquote>{question}</blockquote>
+""".strip()
+
+
 def get_course_keyboard():
     """Инлайн клавиатура выбора курса"""
-    keyboard = [
-        [
-            InlineKeyboardButton(text="1", callback_data="reg_course_1"),
-            InlineKeyboardButton(text="2", callback_data="reg_course_2"),
-            InlineKeyboardButton(text="3", callback_data="reg_course_3"),
-        ],
-        [
-            InlineKeyboardButton(text="4", callback_data="reg_course_4"),
-            InlineKeyboardButton(text="5", callback_data="reg_course_5"),
-            InlineKeyboardButton(text="6", callback_data="reg_course_6"),
-        ]
-    ]
+    keyboard = []
+    for level_key, level_title, years, _offset in COURSE_LEVELS:
+        keyboard.append([InlineKeyboardButton(text=level_title, callback_data="noop")])
+        keyboard.append([
+            InlineKeyboardButton(text=str(year), callback_data=f"reg_course_{level_key}_{year}")
+            for year in years
+        ])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
@@ -61,21 +81,12 @@ def get_info_source_keyboard():
 
 async def start_registration(message: Message, state: FSMContext):
     """Начало регистрации - вызывается из других модулей"""
-    welcome_text = """
-
-   🎓 <b>Комитет Внешних Связей</b>
-
-
-👋 <b>Добро пожаловать!</b>
-
-Я помогу тебе найти подходящие вакансии
-для твоего факультета.
-
-Для начала пройди короткую регистрацию.
-
-
-📝 <b>Шаг 1 из 4:</b> Введи своё имя
-"""
+    welcome_text = get_step_text(
+        step=1,
+        total=REGISTRATION_TOTAL_STEPS,
+        title="Добро пожаловать!",
+        question="Введи своё имя",
+    )
     await message.answer(
         welcome_text,
         parse_mode="HTML"
@@ -91,19 +102,21 @@ async def process_first_name(message: Message, state: FSMContext):
         await state.clear()
         return
     
-    first_name = message.text.strip()
-    if len(first_name) < 2:
+    is_valid, first_name, error_text = validate_name_part(message.text, "Имя")
+    if not is_valid:
         await message.answer(
-            "❌ Имя слишком короткое.\n"
-            "Введи корректное имя (минимум 2 символа):"
+            error_text + "\nВведи корректное имя:"
         )
         return
     
     await state.update_data(first_name=first_name)
     await message.answer(
-        f"✅ Привет, <b>{first_name}</b>!\n\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "📝 <b>Шаг 2 из 4:</b> Теперь введи свою фамилию",
+        get_step_text(
+            step=2,
+            total=REGISTRATION_TOTAL_STEPS,
+            title=f"Приятно познакомиться, {html.escape(first_name)}!",
+            question="Теперь введи свою фамилию",
+        ),
         parse_mode="HTML"
     )
     await state.set_state(RegistrationStates.waiting_for_last_name)
@@ -117,18 +130,52 @@ async def process_last_name(message: Message, state: FSMContext):
         await state.clear()
         return
     
-    last_name = message.text.strip()
-    if len(last_name) < 2:
+    is_valid, last_name, error_text = validate_name_part(message.text, "Фамилия")
+    if not is_valid:
         await message.answer(
-            "❌ Фамилия слишком короткая.\n"
-            "Введи корректную фамилию (минимум 2 символа):"
+            error_text + "\nВведи корректную фамилию:"
         )
         return
     
     await state.update_data(last_name=last_name)
     await message.answer(
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "📝 <b>Шаг 3 из 4:</b> Выбери свой курс",
+        get_step_text(
+            step=3,
+            total=REGISTRATION_TOTAL_STEPS,
+            title="Ещё немного",
+            question='Введи своё отчество или напиши "Нет"',
+        ),
+        parse_mode="HTML"
+    )
+    await state.set_state(RegistrationStates.waiting_for_patronymic)
+
+
+@router.message(RegistrationStates.waiting_for_patronymic)
+async def process_patronymic(message: Message, state: FSMContext):
+    """Обработка отчества"""
+    if message.text and message.text.startswith('/'):
+        await state.clear()
+        return
+
+    is_valid, patronymic, error_text = validate_name_part(
+        message.text,
+        "Отчество",
+        allow_none_literal=True
+    )
+    if not is_valid:
+        await message.answer(
+            error_text + '\nЕсли отчества нет, напиши "Нет".'
+        )
+        return
+
+    await state.update_data(patronymic=patronymic)
+    await message.answer(
+        get_step_text(
+            step=4,
+            total=REGISTRATION_TOTAL_STEPS,
+            title="Отлично, продолжаем",
+            question="Выбери свой курс",
+        ),
         parse_mode="HTML",
         reply_markup=get_course_keyboard()
     )
@@ -138,13 +185,16 @@ async def process_last_name(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("reg_course_"), RegistrationStates.waiting_for_course)
 async def process_course_callback(callback: CallbackQuery, state: FSMContext):
     """Обработка выбора курса через инлайн кнопку"""
-    course = int(callback.data.replace("reg_course_", ""))
+    _level, _year, course = parse_course_callback(callback.data, "reg_course")
     await state.update_data(course=course)
     
     await callback.message.edit_text(
-        f"✅ Выбран курс: <b>{course}</b>\n\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "📝 <b>Шаг 4 из 4:</b> Выбери свой факультет",
+        get_step_text(
+            step=5,
+            total=REGISTRATION_TOTAL_STEPS,
+            title=f"Курс: {format_course_label(course)}",
+            question="Выбери свой факультет",
+        ),
         parse_mode="HTML",
         reply_markup=get_faculty_keyboard()
     )
@@ -159,9 +209,12 @@ async def process_faculty_callback(callback: CallbackQuery, state: FSMContext):
     await state.update_data(faculty=faculty)
     
     await callback.message.edit_text(
-        f"✅ Выбран факультет: <b>{faculty}</b>\n\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "📢 <b>Последний вопрос:</b>\nОткуда ты узнал о проекте?",
+        get_step_text(
+            step=6,
+            total=REGISTRATION_TOTAL_STEPS,
+            title=f"Факультет: {html.escape(faculty)}",
+            question="Откуда ты узнал о проекте?",
+        ),
         parse_mode="HTML",
         reply_markup=get_info_source_keyboard()
     )
@@ -186,6 +239,7 @@ async def process_info_source_callback(callback: CallbackQuery, state: FSMContex
         if user:
             user.first_name = data["first_name"]
             user.last_name = data["last_name"]
+            user.patronymic = data.get("patronymic")
             user.course = data["course"]
             user.faculty = data["faculty"]
             user.info_source = info_source
@@ -197,6 +251,7 @@ async def process_info_source_callback(callback: CallbackQuery, state: FSMContex
                 telegram_id=callback.from_user.id,
                 first_name=data["first_name"],
                 last_name=data["last_name"],
+                patronymic=data.get("patronymic"),
                 course=data["course"],
                 faculty=data["faculty"],
                 info_source=info_source,
@@ -214,23 +269,39 @@ async def process_info_source_callback(callback: CallbackQuery, state: FSMContex
         vacancies_count = await get_user_vacancies_count(session, data["faculty"])
     
     success_text = f"""
-
+        
       ✅ <b>Регистрация завершена!</b>
       
 
 Добро пожаловать, <b>{data['first_name']}</b>!
 
-📚 Твой факультет: <b>{data['faculty']}</b>
-🎯 Для тебя доступно: <b>{vacancies_count}</b> вакансий
+Твой факультет: <b>{data['faculty']}</b>
+Для тебя доступно: <b>{vacancies_count}</b> вакансий
 
 Выбери действие:
 """
     
-    await callback.message.edit_text(
-        success_text,
-        parse_mode="HTML",
-        reply_markup=get_main_menu_keyboard(data["faculty"], vacancies_count)
-    )
+    reply_markup = get_main_menu_keyboard(data["faculty"], vacancies_count)
+
+    if CONGRATULATION_GIF_PATH.exists():
+        try:
+            await callback.message.delete()
+        except TelegramBadRequest:
+            pass
+
+        await callback.message.answer_animation(
+            animation=FSInputFile(CONGRATULATION_GIF_PATH),
+            caption=success_text,
+            parse_mode="HTML",
+            reply_markup=reply_markup
+        )
+    else:
+        logger.warning("Congratulation GIF not found: %s", CONGRATULATION_GIF_PATH)
+        await callback.message.edit_text(
+            success_text,
+            parse_mode="HTML",
+            reply_markup=reply_markup
+        )
     
     await state.clear()
     await callback.answer("🎉 Регистрация завершена!")
@@ -247,9 +318,9 @@ async def process_course_text(message: Message, state: FSMContext):
     
     try:
         course = int(message.text.strip())
-        if course < 1 or course > 6:
+        if course < 1 or course > 8:
             await message.answer(
-                "❌ Курс должен быть от 1 до 6.\n"
+                "❌ Курс должен быть от 1 до 8.\n"
                 "Выбери курс из кнопок выше или введи число:",
                 reply_markup=get_course_keyboard()
             )
@@ -263,9 +334,12 @@ async def process_course_text(message: Message, state: FSMContext):
     
     await state.update_data(course=course)
     await message.answer(
-        f"✅ Выбран курс: <b>{course}</b>\n\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "📝 <b>Шаг 4 из 4:</b> Выбери свой факультет",
+        get_step_text(
+            step=5,
+            total=REGISTRATION_TOTAL_STEPS,
+            title=f"Курс: {format_course_label(course)}",
+            question="Выбери свой факультет",
+        ),
         parse_mode="HTML",
         reply_markup=get_faculty_keyboard()
     )
