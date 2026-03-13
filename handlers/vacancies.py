@@ -166,16 +166,16 @@ def format_vacancy_caption(vacancy: Vacancy) -> str:
     
     # Компактный формат для caption
     lines = [
-        f"💼<b>Вакансия: </b>{vacancy.organization}",
-        f"<b>Компания: </b>{vacancy.position}",
+        f"💼 <b>Вакансия: </b>{vacancy.position}",
+        f"<b>Компания: </b>{vacancy.organization}",
         ""
     ]
     
     # Основная информация
     if vacancy.sphere:
-        lines.append(f"<b>Сфера: </b>{vacancy.salary}")
+        lines.append(f"<b>Сфера: </b>{vacancy.sphere}")
     if vacancy.salary:
-        lines.append(f"<b>Зарплата: </b>{vacancy.sphere}")
+        lines.append(f"<b>Зарплата: </b>{vacancy.salary}")
     if vacancy.schedule:
         lines.append(f"<b>График: </b>{vacancy.schedule}")
     if vacancy.work_format:
@@ -201,16 +201,16 @@ def format_vacancy(vacancy: Vacancy, show_match: bool = False, user_faculty: str
     """Форматирование вакансии для текстового отображения (используется в меню без картинок)"""
     # Определяем эмодзи для сферы
     lines = [
-        f"💼<b>Вакансия: </b>{vacancy.organization}",
-        f"<b>Компания: </b>{vacancy.position}",
+        f"💼 <b>Вакансия: </b>{vacancy.position}",
+        f"<b>Компания: </b>{vacancy.organization}",
         ""
     ]
 
     # Основная информация
     if vacancy.sphere:
-        lines.append(f"<b>Сфера: </b>{vacancy.salary}")
+        lines.append(f"<b>Сфера: </b>{vacancy.sphere}")
     if vacancy.salary:
-        lines.append(f"<b>Зарплата: </b>{vacancy.sphere}")
+        lines.append(f"<b>Зарплата: </b>{vacancy.salary}")
     if vacancy.schedule:
         lines.append(f"<b>График: </b>{vacancy.schedule}")
     if vacancy.work_format:
@@ -224,7 +224,6 @@ def format_vacancy(vacancy: Vacancy, show_match: bool = False, user_faculty: str
         lines.append(f"\n<blockquote>{desc}</blockquote>")
 
     text = "\n".join(lines)
-    
     # Особенности (бейджи)
     features = []
     if vacancy.feature1:
