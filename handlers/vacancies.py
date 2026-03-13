@@ -81,7 +81,54 @@ FACULTY_TO_DB_FIELD = {
 }
 
 # Эмодзи для сфер
+SPHERE_EMOJI: dict[str, str] = {}
 
+
+def normalize_sphere_name(sphere: str | None) -> str | None:
+    """Normalize sphere values from DB/callbacks and drop empty ones."""
+    if sphere is None:
+        return None
+    normalized = sphere.strip()
+    return normalized or None
+
+
+async def get_available_spheres(session) -> list[tuple[str, int]]:
+    """Return all non-empty vacancy spheres with counts."""
+    normalized_sphere = func.trim(Vacancy.sphere)
+    result = await session.execute(
+        select(normalized_sphere.label("sphere"), func.count(Vacancy.id))
+        .where(Vacancy.sphere.is_not(None), normalized_sphere != "")
+        .group_by(normalized_sphere)
+        .order_by(func.count(Vacancy.id).desc(), normalized_sphere.asc())
+    )
+    return [(sphere, count) for sphere, count in result.all() if sphere]
+
+
+async def get_vacancies_for_sphere(session, sphere: str | None) -> list[Vacancy]:
+    """Load vacancies for one sphere in the same order as the general list."""
+    normalized = normalize_sphere_name(sphere)
+    if not normalized:
+        return []
+
+    result = await session.execute(
+        select(Vacancy)
+        .where(func.trim(Vacancy.sphere) == normalized)
+        .order_by(Vacancy.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+async def get_sphere_vacancies_count(session, sphere: str | None) -> int:
+    """Count vacancies for a sphere after normalization."""
+    normalized = normalize_sphere_name(sphere)
+    if not normalized:
+        return 0
+
+    result = await session.execute(
+        select(func.count(Vacancy.id))
+        .where(func.trim(Vacancy.sphere) == normalized)
+    )
+    return result.scalar() or 0
 
 
 def get_main_menu_keyboard(user_faculty: str = None, vacancies_count: int = 0):
@@ -663,13 +710,7 @@ async def callback_vacancies_by_sphere(callback: CallbackQuery):
     """Показать вакансии по сферам"""
     async with async_session_maker() as session:
         # Получаем уникальные сферы с количеством вакансий
-        result = await session.execute(
-            select(Vacancy.sphere, func.count(Vacancy.id))
-            .where(Vacancy.sphere != None, Vacancy.sphere != "")
-            .group_by(Vacancy.sphere)
-            .order_by(func.count(Vacancy.id).desc())
-        )
-        spheres = result.all()
+        spheres = await get_available_spheres(session)
         
         text = "<b>Выбери сферу:</b>\n\n" \
                "Нажми на интересующую сферу, чтобы посмотреть вакансии:"
@@ -682,9 +723,8 @@ async def callback_vacancies_by_sphere(callback: CallbackQuery):
         else:
             keyboard_rows = []
             for sphere, count in spheres:
-                emoji = SPHERE_EMOJI.get(sphere, "💼")
                 keyboard_rows.append([InlineKeyboardButton(
-                    text=f"{emoji} {sphere} ({count})",
+                    text=f"{sphere} ({count})",
                     callback_data=f"sphere_{sphere}"
                 )])
             keyboard_rows.append([InlineKeyboardButton(text="Меню", callback_data="main_menu")])
@@ -710,13 +750,13 @@ async def callback_vacancies_by_sphere(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("sphere_"))
 async def callback_sphere_vacancies(callback: CallbackQuery):
     """Показать вакансии конкретной сферы"""
-    sphere = callback.data.replace("sphere_", "")
-    
+    sphere = normalize_sphere_name(callback.data.replace("sphere_", "", 1))
+    if not sphere:
+        await callback.answer("Сфера не найдена", show_alert=True)
+        return
+
     async with async_session_maker() as session:
-        result = await session.execute(
-            select(Vacancy).where(Vacancy.sphere == sphere).order_by(Vacancy.created_at.desc())
-        )
-        vacancies = result.scalars().all()
+        vacancies = await get_vacancies_for_sphere(session, sphere)
         
         if not vacancies:
             await callback.message.edit_text(
@@ -730,8 +770,8 @@ async def callback_sphere_vacancies(callback: CallbackQuery):
             return
         
         vacancy = vacancies[0]
-        emoji = SPHERE_EMOJI.get(sphere, "💼")
-        caption = f"{emoji} <b>Сфера: {sphere}</b>\n\n" + format_vacancy_caption(vacancy)
+
+        caption =format_vacancy_caption(vacancy)
         
         # Проверяем есть ли описание компании
         has_company_desc = await check_company_has_description(session, vacancy.organization)
@@ -753,14 +793,14 @@ async def callback_sphere_vacancies(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("vac_"))
 async def callback_vacancy_navigation(callback: CallbackQuery):
     """Навигация по вакансиям с редактированием картинки"""
-    parts = callback.data.split("_")
+    parts = callback.data.split("_", 3)
     if len(parts) < 3:
         await callback.answer("Ошибка навигации", show_alert=True)
         return
     
     filter_type = parts[1]
     target_index = int(parts[2])
-    sphere = parts[3] if len(parts) > 3 and parts[3] else None
+    sphere = normalize_sphere_name(parts[3]) if len(parts) > 3 else None
     
     async with async_session_maker() as session:
         if filter_type == "my":
@@ -784,10 +824,7 @@ async def callback_vacancy_navigation(callback: CallbackQuery):
             )
             vacancies = result.scalars().all()
         elif filter_type == "sphere" and sphere:
-            result = await session.execute(
-                select(Vacancy).where(Vacancy.sphere == sphere).order_by(Vacancy.created_at.desc())
-            )
-            vacancies = result.scalars().all()
+            vacancies = await get_vacancies_for_sphere(session, sphere)
         elif filter_type == "division" and sphere:
             # sphere содержит division_id
             division_id = int(sphere)
@@ -1491,7 +1528,7 @@ async def callback_set_faculty(callback: CallbackQuery):
 async def callback_about_company(callback: CallbackQuery):
     """Показать информацию о компании"""
     # Формат: about_company_{vacancy_id}_{filter_type}_{index}_{sphere}
-    parts = callback.data.split("_")
+    parts = callback.data.split("_", 5)
     if len(parts) < 5:
         await callback.answer("Ошибка", show_alert=True)
         return
@@ -1499,7 +1536,7 @@ async def callback_about_company(callback: CallbackQuery):
     vacancy_id = int(parts[2])
     filter_type = parts[3]
     current_index = int(parts[4])
-    sphere = parts[5] if len(parts) > 5 and parts[5] else None
+    sphere = normalize_sphere_name(parts[5]) if len(parts) > 5 else None
     
     async with async_session_maker() as session:
         # Получаем вакансию
@@ -1547,7 +1584,7 @@ async def callback_about_company(callback: CallbackQuery):
 async def callback_back_to_vacancy(callback: CallbackQuery):
     """Вернуться к вакансии из описания компании"""
     # Формат: back_to_vac_{vacancy_id}_{filter_type}_{index}_{sphere}
-    parts = callback.data.split("_")
+    parts = callback.data.split("_", 6)
     if len(parts) < 6:
         await callback.answer("Ошибка", show_alert=True)
         return
@@ -1555,7 +1592,7 @@ async def callback_back_to_vacancy(callback: CallbackQuery):
     vacancy_id = int(parts[3])
     filter_type = parts[4]
     current_index = int(parts[5])
-    sphere = parts[6] if len(parts) > 6 and parts[6] else None
+    sphere = normalize_sphere_name(parts[6]) if len(parts) > 6 else None
     
     async with async_session_maker() as session:
         # Получаем вакансию
@@ -1587,10 +1624,7 @@ async def callback_back_to_vacancy(callback: CallbackQuery):
             else:
                 total = 1
         elif filter_type == "sphere" and sphere:
-            count_result = await session.execute(
-                select(func.count(Vacancy.id)).where(Vacancy.sphere == sphere)
-            )
-            total = count_result.scalar() or 1
+            total = await get_sphere_vacancies_count(session, sphere) or 1
         else:
             count_result = await session.execute(
                 select(func.count(Vacancy.id))
