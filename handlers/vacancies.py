@@ -8,10 +8,21 @@ from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select, func, distinct
 from pathlib import Path
 
-from database.models import User, Vacancy, Company, Division
+from database.models import User, Vacancy, Company, Division, Event, EventRegistration
 from database.db import async_session_maker
 from config import FACULTIES, ADMIN_IDS
+from services.company_utils import (
+    clean_company_name,
+    company_has_description,
+    deduplicate_companies,
+    find_company_by_name,
+    get_company_aliases,
+    normalize_company_name,
+    normalized_company_sql,
+)
 from services.course_utils import COURSE_LEVELS, format_course_label, parse_course_callback
+from services.event_photos import get_event_photo_input
+from services.google_sheets import export_event_registrations_to_sheet
 from services.user_names import format_full_name, validate_name_part
 
 
@@ -143,6 +154,19 @@ def get_main_menu_keyboard(user_faculty: str = None, vacancies_count: int = 0):
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
+def get_main_menu_keyboard(user_faculty: str = None, vacancies_count: int = 0):
+    """Build the main user menu."""
+    keyboard = [
+        [InlineKeyboardButton(text="Мой профиль", callback_data="profile")],
+        [InlineKeyboardButton(text="Обратная связь", callback_data="feedback")],
+        [InlineKeyboardButton(text="Компании-партнеры", callback_data="companies_list")],
+        [InlineKeyboardButton(text="Мероприятия", callback_data="events_list")],
+        [InlineKeyboardButton(text="Вакансии", callback_data="vacancies_menu")],
+        [InlineKeyboardButton(text="О нас", callback_data="about_us")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
 def get_vacancy_keyboard(vacancy_id: int, current_index: int, total: int, filter_type: str = "all", sphere: str = None, has_company_desc: bool = False, organization: str = None):
     """Клавиатура для навигации по вакансиям"""
     keyboard = []
@@ -201,10 +225,84 @@ async def check_company_has_description(session, organization: str) -> bool:
     """Проверить есть ли у компании описание"""
     if not organization:
         return False
+    company = await find_company_by_name(session, organization)
+    return company_has_description(company) if company else False
+
+
+async def check_company_has_description(session, organization: str) -> bool:
+    """РџСЂРѕРІРµСЂРёС‚СЊ РµСЃС‚СЊ Р»Рё Сѓ РєРѕРјРїР°РЅРёРё РѕРїРёСЃР°РЅРёРµ."""
+    if not organization:
+        return False
+    company = await find_company_by_name(session, organization)
+    return company_has_description(company) if company else False
+
+
+async def get_canonical_company_by_id(session, company_id: int) -> Company | None:
+    """Resolve a company ID to the preferred row among normalized duplicates."""
+    company = (await session.execute(select(Company).where(Company.id == company_id))).scalar_one_or_none()
+    if not company:
+        return None
+
+    aliases = await get_company_aliases(session, company.name)
+    return aliases[0] if aliases else company
+
+
+async def get_company_divisions(session, company_name: str | None) -> list[Division]:
+    """Return divisions across all aliases of the same company."""
+    aliases = await get_company_aliases(session, company_name)
+    alias_ids = [company.id for company in aliases if company.id is not None]
+    if not alias_ids:
+        return []
+
     result = await session.execute(
-        select(Company).where(Company.name == organization, Company.description != None, Company.description != "")
+        select(Division).where(Division.company_id.in_(alias_ids)).order_by(Division.name)
     )
-    return result.scalar_one_or_none() is not None
+    divisions = result.scalars().all()
+
+    deduplicated: dict[str, Division] = {}
+    for division in divisions:
+        normalized_division_name = clean_company_name(division.name).casefold()
+        if not normalized_division_name:
+            continue
+        existing = deduplicated.get(normalized_division_name)
+        if existing is None or (division.description and not existing.description):
+            deduplicated[normalized_division_name] = division
+
+    return list(deduplicated.values())
+
+
+async def get_company_vacancies(session, company_name: str | None, division_name: str | None = None) -> list[Vacancy]:
+    """Load vacancies for a company using normalized organization matching."""
+    normalized_name = normalize_company_name(company_name)
+    if not normalized_name:
+        return []
+
+    query = (
+        select(Vacancy)
+        .where(normalized_company_sql(Vacancy.organization) == normalized_name)
+        .order_by(Vacancy.created_at.desc())
+    )
+    cleaned_division_name = clean_company_name(division_name)
+    if cleaned_division_name:
+        query = query.where(func.trim(Vacancy.division) == cleaned_division_name)
+
+    result = await session.execute(query)
+    return result.scalars().all()
+
+
+async def get_company_vacancies_count(session, company_name: str | None, division_name: str | None = None) -> int:
+    """Count vacancies for a company using normalized organization matching."""
+    normalized_name = normalize_company_name(company_name)
+    if not normalized_name:
+        return 0
+
+    query = select(func.count(Vacancy.id)).where(normalized_company_sql(Vacancy.organization) == normalized_name)
+    cleaned_division_name = clean_company_name(division_name)
+    if cleaned_division_name:
+        query = query.where(func.trim(Vacancy.division) == cleaned_division_name)
+
+    result = await session.execute(query)
+    return result.scalar() or 0
 
 
 def format_vacancy_caption(vacancy: Vacancy) -> str:
@@ -297,6 +395,34 @@ async def get_user_vacancies_count(session, user_faculty: str) -> int:
         select(func.count(Vacancy.id)).where(filter_condition)
     )
     return result.scalar() or 0
+
+
+def get_events_list_keyboard(events: list[Event]) -> InlineKeyboardMarkup:
+    keyboard = []
+    for event in events:
+        title = event.title if len(event.title) <= 32 else f"{event.title[:29]}..."
+        keyboard.append([InlineKeyboardButton(text=title, callback_data=f"view_event_{event.id}")])
+    keyboard.append([InlineKeyboardButton(text="Меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_event_keyboard(event_id: int, can_register: bool, already_registered: bool) -> InlineKeyboardMarkup:
+    buttons = []
+    if already_registered:
+        buttons.append([InlineKeyboardButton(text="Вы уже зарегистрированы", callback_data="noop")])
+    elif can_register:
+        buttons.append([InlineKeyboardButton(text="Зарегистрироваться", callback_data=f"event_register_{event_id}")])
+    buttons.append([InlineKeyboardButton(text="Меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def build_event_text(event: Event, main_count: int, reserve_count: int, user_status: str | None = None) -> str:
+    lines = [
+        f"<b>{html.escape(event.title)}</b>",
+        "",
+        html.escape(event.description) if event.description else "Описание пока не заполнено.",
+    ]
+    return "\n".join(lines)
 
 
 async def show_main_menu_or_registration(message: Message, state: FSMContext, user_id: int):
@@ -569,6 +695,184 @@ async def process_feedback_message(message: Message, state: FSMContext, bot: Bot
     )
 
 
+@router.callback_query(F.data == "events_list")
+async def callback_events_list(callback: CallbackQuery):
+    """Show available events for users."""
+    async with async_session_maker() as session:
+        user = (
+            await session.execute(select(User).where(User.telegram_id == callback.from_user.id))
+        ).scalar_one_or_none()
+        if not user or not user.is_registered:
+            await callback.answer("Сначала пройди регистрацию через /start", show_alert=True)
+            return
+
+        events = (
+            await session.execute(
+                select(Event).where(Event.is_active.is_(True)).order_by(Event.created_at.desc(), Event.id.desc())
+            )
+        ).scalars().all()
+
+    if not events:
+        text = "<b>Мероприятия</b>\n\nСейчас доступных мероприятий нет."
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="Меню", callback_data="main_menu")]]
+        )
+        if callback.message.photo:
+            await callback.message.delete()
+            await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+        else:
+            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+        await callback.answer()
+        return
+
+    text = "<b>Мероприятия</b>\n\nВыбери мероприятие, чтобы посмотреть описание и зарегистрироваться."
+    keyboard = get_events_list_keyboard(events)
+    if callback.message.photo:
+        await callback.message.delete()
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    else:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("view_event_"))
+async def callback_view_event(callback: CallbackQuery):
+    """Show one event card."""
+    try:
+        event_id = int(callback.data.replace("view_event_", ""))
+    except ValueError:
+        await callback.answer("Некорректный ID мероприятия", show_alert=True)
+        return
+
+    async with async_session_maker() as session:
+        user = (
+            await session.execute(select(User).where(User.telegram_id == callback.from_user.id))
+        ).scalar_one_or_none()
+        if not user or not user.is_registered:
+            await callback.answer("Сначала пройди регистрацию через /start", show_alert=True)
+            return
+
+        event = (
+            await session.execute(
+                select(Event).where(Event.id == event_id, Event.is_active.is_(True))
+            )
+        ).scalar_one_or_none()
+        if not event:
+            await callback.answer("Мероприятие не найдено", show_alert=True)
+            return
+
+        main_count = (
+            await session.execute(
+                select(func.count(EventRegistration.id)).where(
+                    EventRegistration.event_id == event.id,
+                    EventRegistration.status == "main",
+                )
+            )
+        ).scalar() or 0
+        reserve_count = (
+            await session.execute(
+                select(func.count(EventRegistration.id)).where(
+                    EventRegistration.event_id == event.id,
+                    EventRegistration.status == "reserve",
+                )
+            )
+        ).scalar() or 0
+        registration = (
+            await session.execute(
+                select(EventRegistration).where(
+                    EventRegistration.event_id == event.id,
+                    EventRegistration.user_id == user.id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    text = build_event_text(event, main_count, reserve_count, registration.status if registration else None)
+    keyboard = get_event_keyboard(event.id, can_register=True, already_registered=registration is not None)
+    await callback.message.delete()
+    if event.photo_file_id:
+        try:
+            await callback.message.answer_photo(
+                photo=get_event_photo_input(event.photo_file_id),
+                caption=text,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+            )
+        except Exception:
+            await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    else:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("event_register_"))
+async def callback_event_register(callback: CallbackQuery):
+    """Register a user for an event with main/reserve allocation."""
+    try:
+        event_id = int(callback.data.replace("event_register_", ""))
+    except ValueError:
+        await callback.answer("Некорректный ID мероприятия", show_alert=True)
+        return
+
+    async with async_session_maker() as session:
+        user = (
+            await session.execute(select(User).where(User.telegram_id == callback.from_user.id))
+        ).scalar_one_or_none()
+        if not user or not user.is_registered:
+            await callback.answer("Сначала пройди регистрацию через /start", show_alert=True)
+            return
+
+        event = (
+            await session.execute(
+                select(Event).where(Event.id == event_id, Event.is_active.is_(True))
+            )
+        ).scalar_one_or_none()
+        if not event:
+            await callback.answer("Мероприятие не найдено", show_alert=True)
+            return
+
+        existing_registration = (
+            await session.execute(
+                select(EventRegistration).where(
+                    EventRegistration.event_id == event.id,
+                    EventRegistration.user_id == user.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_registration:
+            await callback.answer("Ты уже зарегистрирован на это мероприятие", show_alert=True)
+            return
+
+        main_count = (
+            await session.execute(
+                select(func.count(EventRegistration.id)).where(
+                    EventRegistration.event_id == event.id,
+                    EventRegistration.status == "main",
+                )
+            )
+        ).scalar() or 0
+        status = "main" if main_count < event.capacity else "reserve"
+        session.add(EventRegistration(event_id=event.id, user_id=user.id, status=status))
+        await session.flush()
+        try:
+            await export_event_registrations_to_sheet(session, event)
+        except Exception:
+            pass
+        await session.commit()
+
+        response_text = event.success_message if status == "main" else event.reserve_message
+
+    await callback.message.answer(
+        response_text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="К мероприятию", callback_data=f"view_event_{event_id}")],
+                [InlineKeyboardButton(text="Меню", callback_data="main_menu")],
+            ]
+        ),
+    )
+    await callback.answer("Регистрация сохранена")
+
+
 @router.callback_query(F.data == "vacancies_menu")
 async def callback_vacancies_menu(callback: CallbackQuery):
     """Меню вакансий"""
@@ -838,13 +1142,7 @@ async def callback_vacancy_navigation(callback: CallbackQuery):
                 )
                 company = company_result.scalar_one_or_none()
                 if company:
-                    result = await session.execute(
-                        select(Vacancy).where(
-                            Vacancy.organization == company.name,
-                            Vacancy.division == division.name
-                        ).order_by(Vacancy.created_at.desc())
-                    )
-                    vacancies = result.scalars().all()
+                    vacancies = await get_company_vacancies(session, company.name, division.name)
                 else:
                     vacancies = []
             else:
@@ -857,10 +1155,7 @@ async def callback_vacancy_navigation(callback: CallbackQuery):
             )
             company = company_result.scalar_one_or_none()
             if company:
-                result = await session.execute(
-                    select(Vacancy).where(Vacancy.organization == company.name).order_by(Vacancy.created_at.desc())
-                )
-                vacancies = result.scalars().all()
+                vacancies = await get_company_vacancies(session, company.name)
             else:
                 vacancies = []
         else:
@@ -968,10 +1263,18 @@ async def callback_companies_list(callback: CallbackQuery):
 
         if vacancy_companies:
             existing_companies_result = await session.execute(
-                select(Company).where(Company.name.in_(vacancy_companies))
+                select(Company).where(Company.name.isnot(None), Company.name != "")
             )
-            existing_company_names = {company.name for company in existing_companies_result.scalars().all()}
-            missing_company_names = sorted(vacancy_companies - existing_company_names)
+            existing_company_names = {
+                normalize_company_name(company.name)
+                for company in existing_companies_result.scalars().all()
+                if normalize_company_name(company.name)
+            }
+            missing_company_names = sorted(
+                clean_company_name(company_name)
+                for company_name in vacancy_companies
+                if normalize_company_name(company_name) not in existing_company_names
+            )
             for company_name in missing_company_names:
                 session.add(Company(name=company_name, description=None))
             if missing_company_names:
@@ -983,7 +1286,7 @@ async def callback_companies_list(callback: CallbackQuery):
             .where(Company.name.isnot(None), Company.name != "")
             .order_by(Company.name)
         )
-        companies = result.scalars().all()
+        companies = deduplicate_companies(result.scalars().all())
         
         if not companies:
             # Если текущее сообщение - фото, удаляем и отправляем текст
@@ -1022,7 +1325,7 @@ async def callback_companies_list(callback: CallbackQuery):
         for company in companies:
             keyboard.append([
                 InlineKeyboardButton(
-                    text=f" {company.name}",
+                    text=f" {clean_company_name(company.name)}",
                     callback_data=f"view_company_{company.id}"
                 )
             ])
@@ -1051,29 +1354,20 @@ async def callback_view_company(callback: CallbackQuery):
     company_id = int(callback.data.split("_")[2])
     
     async with async_session_maker() as session:
-        result = await session.execute(
-            select(Company).where(Company.id == company_id)
-        )
-        company = result.scalar_one_or_none()
+        company = await get_canonical_company_by_id(session, company_id)
         
         if not company:
             await callback.answer("Компания не найдена", show_alert=True)
             return
         
         # Считаем количество вакансий от этой компании
-        vacancies_result = await session.execute(
-            select(func.count(Vacancy.id)).where(Vacancy.organization == company.name)
-        )
-        vacancies_count = vacancies_result.scalar() or 0
+        vacancies_count = await get_company_vacancies_count(session, company.name)
         
         # Проверяем есть ли подразделения
-        divisions_result = await session.execute(
-            select(Division).where(Division.company_id == company_id)
-        )
-        divisions = divisions_result.scalars().all()
+        divisions = await get_company_divisions(session, company.name)
         
         text = f"""
-<b>{company.name}</b>
+<b>{clean_company_name(company.name)}</b>
 
 {company.description or 'Описание отсутствует'}
 
@@ -1118,20 +1412,14 @@ async def callback_company_divisions(callback: CallbackQuery):
     
     async with async_session_maker() as session:
         # Получаем компанию
-        company_result = await session.execute(
-            select(Company).where(Company.id == company_id)
-        )
-        company = company_result.scalar_one_or_none()
+        company = await get_canonical_company_by_id(session, company_id)
         
         if not company:
             await callback.answer("Компания не найдена", show_alert=True)
             return
         
         # Получаем подразделения
-        divisions_result = await session.execute(
-            select(Division).where(Division.company_id == company_id).order_by(Division.name)
-        )
-        divisions = divisions_result.scalars().all()
+        divisions = await get_company_divisions(session, company.name)
         
         if not divisions:
             await callback.answer("У этой компании нет подразделений", show_alert=True)
@@ -1186,13 +1474,7 @@ async def callback_view_division(callback: CallbackQuery):
         company = company_result.scalar_one_or_none()
         
         # Считаем вакансии подразделения
-        vacancies_result = await session.execute(
-            select(func.count(Vacancy.id)).where(
-                Vacancy.organization == company.name,
-                Vacancy.division == division.name
-            )
-        )
-        vacancies_count = vacancies_result.scalar() or 0
+        vacancies_count = await get_company_vacancies_count(session, company.name, division.name)
         
         text = f"""
 <b>{division.name}</b>
@@ -1254,13 +1536,7 @@ async def callback_division_vacancies(callback: CallbackQuery):
         company = company_result.scalar_one_or_none()
         
         # Получаем вакансии подразделения
-        vacancies_result = await session.execute(
-            select(Vacancy).where(
-                Vacancy.organization == company.name,
-                Vacancy.division == division.name
-            ).order_by(Vacancy.created_at.desc())
-        )
-        vacancies = vacancies_result.scalars().all()
+        vacancies = await get_company_vacancies(session, company.name, division.name)
         
         if not vacancies:
             await callback.answer("Нет вакансий в этом подразделении", show_alert=True)
@@ -1295,20 +1571,14 @@ async def callback_company_vacancies(callback: CallbackQuery):
     
     async with async_session_maker() as session:
         # Получаем компанию
-        company_result = await session.execute(
-            select(Company).where(Company.id == company_id)
-        )
-        company = company_result.scalar_one_or_none()
+        company = await get_canonical_company_by_id(session, company_id)
         
         if not company:
             await callback.answer("Компания не найдена", show_alert=True)
             return
         
         # Получаем вакансии компании
-        vacancies_result = await session.execute(
-            select(Vacancy).where(Vacancy.organization == company.name).order_by(Vacancy.created_at.desc())
-        )
-        vacancies = vacancies_result.scalars().all()
+        vacancies = await get_company_vacancies(session, company.name)
         
         if not vacancies:
             await callback.answer("Нет вакансий от этой компании", show_alert=True)
@@ -1550,10 +1820,7 @@ async def callback_about_company(callback: CallbackQuery):
             return
         
         # Получаем описание компании
-        company_result = await session.execute(
-            select(Company).where(Company.name == vacancy.organization)
-        )
-        company = company_result.scalar_one_or_none()
+        company = await find_company_by_name(session, vacancy.organization)
         
         if not company or not company.description:
             await callback.answer("Описание компании не найдено", show_alert=True)

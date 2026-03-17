@@ -12,6 +12,17 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_int(name: str, default: int) -> int:
+    """Convert environment variable to int safely."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value.strip())
+    except ValueError:
+        return default
+
+
 def _env_channel_username(name: str, default: str = "") -> str:
     """Normalize channel username for Telegram API calls."""
     value = os.getenv(name, default).strip()
@@ -28,6 +39,8 @@ def _env_channel_username(name: str, default: str = "") -> str:
 # Telegram Bot
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(","))) if os.getenv("ADMIN_IDS") else []
+AUTO_RESTART_ENABLED = _env_bool("AUTO_RESTART_ENABLED", default=True)
+AUTO_RESTART_DELAY_SECONDS = max(1, _env_int("AUTO_RESTART_DELAY_SECONDS", default=5))
 REQUIRED_CHANNEL_USERNAME = _env_channel_username("REQUIRED_CHANNEL_USERNAME", "@kvskeepintouch")
 REQUIRED_CHANNEL_URL = os.getenv(
     "REQUIRED_CHANNEL_URL",
@@ -43,6 +56,10 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 
 # Google Sheets
 GOOGLE_SHEETS_URL = os.getenv("GOOGLE_SHEETS_URL", "")
+EVENTS_GOOGLE_SHEETS_URL = os.getenv(
+    "EVENTS_GOOGLE_SHEETS_URL",
+    "https://docs.google.com/spreadsheets/d/14WUklH3Ksg8OGS2d1_CLp2MTtEQfr8KfUotMUMY3Z_4/edit?gid=0#gid=0",
+)
 GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "")
 SEED_DEMO_DATA = _env_bool("SEED_DEMO_DATA", default=False)

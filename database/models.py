@@ -1,14 +1,15 @@
-from sqlalchemy import Column, Integer, BigInteger, String, Boolean, DateTime, Text, ForeignKey
+from datetime import datetime
+
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-from datetime import datetime
 
 Base = declarative_base()
 
 
 class User(Base):
     __tablename__ = "users"
-    
+
     id = Column(Integer, primary_key=True)
     telegram_id = Column(BigInteger, unique=True, nullable=False, index=True)
     first_name = Column(String(100))
@@ -21,13 +22,15 @@ class User(Base):
     registered_at = Column(DateTime, default=datetime.utcnow)
     last_activity = Column(DateTime, default=datetime.utcnow)
 
+    event_registrations = relationship("EventRegistration", back_populates="user")
+
 
 class Vacancy(Base):
     __tablename__ = "vacancies"
-    
+
     id = Column(Integer, primary_key=True)
     organization = Column(String(200))
-    division = Column(String(200))  # Подразделение компании
+    division = Column(String(200))
     position = Column(String(200))
     sphere = Column(String(100))
     salary = Column(String(100))
@@ -38,8 +41,7 @@ class Vacancy(Base):
     feature1 = Column(String(200))
     feature2 = Column(String(200))
     feature3 = Column(String(200))
-    
-    # Факультеты (булевы поля)
+
     itiabd = Column(Boolean, default=False)
     finfak = Column(Boolean, default=False)
     vshu = Column(Boolean, default=False)
@@ -48,14 +50,14 @@ class Vacancy(Base):
     meo = Column(Boolean, default=False)
     feb = Column(Boolean, default=False)
     yurfak = Column(Boolean, default=False)
-    
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class Statistics(Base):
     __tablename__ = "statistics"
-    
+
     id = Column(Integer, primary_key=True)
     total_users = Column(Integer, default=0)
     registered_users = Column(Integer, default=0)
@@ -64,30 +66,64 @@ class Statistics(Base):
 
 
 class Company(Base):
-    """Описания компаний для вакансий"""
     __tablename__ = "companies"
-    
+
     id = Column(Integer, primary_key=True)
-    name = Column(String(200), unique=True, nullable=False, index=True)  # Название компании (из вакансии)
-    description = Column(Text)  # Описание компании (поддерживает HTML форматирование)
+    name = Column(String(200), unique=True, nullable=False, index=True)
+    description = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Связь с подразделениями
+
     divisions = relationship("Division", back_populates="company")
 
 
 class Division(Base):
-    """Подразделения компаний"""
     __tablename__ = "divisions"
-    
+
     id = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
-    name = Column(String(200), nullable=False)  # Название подразделения
-    description = Column(Text)  # Описание подразделения
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Связь с компанией
+
     company = relationship("Company", back_populates="divisions")
 
+
+class Event(Base):
+    __tablename__ = "events"
+
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text)
+    photo_file_id = Column(String(255))
+    capacity = Column(Integer, nullable=False, default=0)
+    success_message = Column(Text, nullable=False)
+    reserve_message = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    spreadsheet_id = Column(String(255), unique=True)
+    spreadsheet_url = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    registrations = relationship(
+        "EventRegistration",
+        back_populates="event",
+        cascade="all, delete-orphan",
+    )
+
+
+class EventRegistration(Base):
+    __tablename__ = "event_registrations"
+    __table_args__ = (
+        UniqueConstraint("event_id", "user_id", name="uq_event_registrations_event_user"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String(20), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    event = relationship("Event", back_populates="registrations")
+    user = relationship("User", back_populates="event_registrations")
