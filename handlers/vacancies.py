@@ -10,7 +10,8 @@ from pathlib import Path
 
 from database.models import User, Vacancy, Company, Division, Event, EventRegistration
 from database.db import async_session_maker
-from config import FACULTIES, ADMIN_IDS
+from config import FACULTIES
+from services.admins import get_admin_ids
 from services.company_utils import (
     clean_company_name,
     company_has_description,
@@ -672,7 +673,7 @@ async def process_feedback_message(message: Message, state: FSMContext, bot: Bot
     
     # Отправляем всем админам
     sent_count = 0
-    for admin_id in ADMIN_IDS:
+    for admin_id in await get_admin_ids():
         try:
             await bot.send_message(
                 admin_id,

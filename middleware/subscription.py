@@ -3,7 +3,7 @@ from typing import Any, Awaitable, Callable, Dict
 from aiogram import BaseMiddleware, Bot
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
-from config import ADMIN_IDS
+from services.admins import is_admin
 from services.subscription import (
     get_subscription_keyboard,
     get_subscription_text,
@@ -30,7 +30,10 @@ class SubscriptionMiddleware(BaseMiddleware):
         user = data.get("event_from_user")
         bot: Bot | None = data.get("bot")
 
-        if not user or not bot or user.id in ADMIN_IDS:
+        if not user or not bot:
+            return await handler(event, data)
+
+        if await is_admin(user.id):
             return await handler(event, data)
 
         if isinstance(event, Message):

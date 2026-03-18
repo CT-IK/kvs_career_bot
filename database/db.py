@@ -30,6 +30,9 @@ async def init_db():
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS patronymic VARCHAR(100)"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(64)"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_username_lower ON users (LOWER(username))"))
         _safe_print("✅ Таблицы базы данных успешно созданы/проверены")
         
         if SEED_DEMO_DATA:

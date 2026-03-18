@@ -13,6 +13,7 @@ from database.models import User
 from database.db import async_session_maker
 from config import FACULTIES, INFO_SOURCES
 from datetime import datetime
+from services.admins import normalize_username
 from services.course_utils import COURSE_LEVELS, format_course_label, parse_course_callback
 from services.user_names import validate_name_part
 
@@ -237,6 +238,7 @@ async def process_info_source_callback(callback: CallbackQuery, state: FSMContex
         user = result.scalar_one_or_none()
         
         if user:
+            user.username = normalize_username(callback.from_user.username)
             user.first_name = data["first_name"]
             user.last_name = data["last_name"]
             user.patronymic = data.get("patronymic")
@@ -249,6 +251,7 @@ async def process_info_source_callback(callback: CallbackQuery, state: FSMContex
         else:
             user = User(
                 telegram_id=callback.from_user.id,
+                username=normalize_username(callback.from_user.username),
                 first_name=data["first_name"],
                 last_name=data["last_name"],
                 patronymic=data.get("patronymic"),

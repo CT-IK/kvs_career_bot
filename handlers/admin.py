@@ -9,9 +9,9 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
 from sqlalchemy import distinct, func, select
 
-from config import ADMIN_IDS
 from database.db import async_session_maker
 from database.models import Company, Event, EventRegistration, Statistics, User, Vacancy
+from services.admins import grant_admin_by_username, is_admin, normalize_username
 from services.company_utils import clean_company_name, normalize_company_name
 from services.event_photos import delete_event_photo, get_event_photo_input, save_event_photo
 from services.google_sheets import delete_event_spreadsheet, ensure_event_spreadsheet, export_event_registrations_to_sheet, sync_vacancies_to_db
@@ -36,6 +36,10 @@ class AdminDirectMessageStates(StatesGroup):
     waiting_for_message = State()
 
 
+class AdminManageStates(StatesGroup):
+    waiting_for_username = State()
+
+
 class EventCreateStates(StatesGroup):
     waiting_for_title = State()
     waiting_for_description = State()
@@ -51,16 +55,13 @@ class EventEditStates(StatesGroup):
     waiting_for_photo = State()
 
 
-def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
-
-
 def get_admin_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Синхронизировать вакансии", callback_data="admin_sync")],
             [InlineKeyboardButton(text="Рассылка", callback_data="admin_broadcast")],
             [InlineKeyboardButton(text="Сообщение по ID", callback_data="admin_direct_message")],
+            [InlineKeyboardButton(text="Добавить администратора", callback_data="admin_add_admin")],
             [InlineKeyboardButton(text="Компании", callback_data="admin_companies")],
             [InlineKeyboardButton(text="Мероприятия", callback_data="admin_events")],
             [InlineKeyboardButton(text="Обновить статистику", callback_data="admin_stats")],
@@ -84,6 +85,12 @@ def get_broadcast_cancel_keyboard() -> InlineKeyboardMarkup:
 def get_direct_message_cancel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="Отмена", callback_data="admin_direct_message_cancel")]]
+    )
+
+
+def get_add_admin_cancel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="Отмена", callback_data="admin_add_admin_cancel")]]
     )
 
 
@@ -290,7 +297,7 @@ async def show_event_admin_message(target: Message, event: Event, main_count: in
 
 @router.message(Command("admin"))
 async def cmd_admin(message: Message, state: FSMContext) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await message.answer("У тебя нет доступа к админ-панели.")
         return
 
@@ -301,7 +308,7 @@ async def cmd_admin(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "admin_stats")
 async def callback_admin_stats(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -323,7 +330,7 @@ async def callback_admin_stats(callback: CallbackQuery, state: FSMContext) -> No
 
 @router.callback_query(F.data == "admin_sync")
 async def callback_admin_sync(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -352,7 +359,7 @@ async def callback_admin_sync(callback: CallbackQuery, state: FSMContext) -> Non
 
 @router.message(Command("sync_vacancies"))
 async def cmd_sync_vacancies(message: Message, state: FSMContext) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await message.answer("У тебя нет доступа к этой команде.")
         return
 
@@ -380,7 +387,7 @@ async def cmd_sync_vacancies(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "admin_companies")
 async def callback_admin_companies(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -422,7 +429,7 @@ async def callback_admin_companies(callback: CallbackQuery, state: FSMContext) -
 
 @router.callback_query(F.data == "comp_list_all")
 async def callback_companies_list_all(callback: CallbackQuery) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -443,7 +450,7 @@ async def callback_companies_list_all(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("comp_edit_"))
 async def callback_company_edit(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -483,7 +490,7 @@ async def callback_company_edit(callback: CallbackQuery, state: FSMContext) -> N
 
 @router.callback_query(F.data.startswith("comp_delete_"))
 async def callback_company_delete_desc(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -508,7 +515,7 @@ async def callback_company_delete_desc(callback: CallbackQuery, state: FSMContex
 
 @router.callback_query(F.data == "admin_broadcast")
 async def callback_admin_broadcast(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -524,7 +531,7 @@ async def callback_admin_broadcast(callback: CallbackQuery, state: FSMContext) -
 
 @router.callback_query(F.data == "admin_broadcast_cancel")
 async def callback_admin_broadcast_cancel(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -536,7 +543,7 @@ async def callback_admin_broadcast_cancel(callback: CallbackQuery, state: FSMCon
 
 @router.callback_query(F.data == "admin_direct_message")
 async def callback_admin_direct_message(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -551,7 +558,7 @@ async def callback_admin_direct_message(callback: CallbackQuery, state: FSMConte
 
 @router.callback_query(F.data == "admin_direct_message_cancel")
 async def callback_admin_direct_message_cancel(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -561,9 +568,37 @@ async def callback_admin_direct_message_cancel(callback: CallbackQuery, state: F
     await callback.answer()
 
 
+@router.callback_query(F.data == "admin_add_admin")
+async def callback_admin_add_admin(callback: CallbackQuery, state: FSMContext) -> None:
+    if not await is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    await state.clear()
+    await state.set_state(AdminManageStates.waiting_for_username)
+    await callback.message.answer(
+        "Отправь username нового администратора в формате @username.\n\n"
+        "Пользователь должен хотя бы один раз запустить бота, чтобы я смог найти его в базе.",
+        reply_markup=get_add_admin_cancel_keyboard(),
+    )
+    await callback.answer("Режим добавления администратора включен")
+
+
+@router.callback_query(F.data == "admin_add_admin_cancel")
+async def callback_admin_add_admin_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+    if not await is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    await state.clear()
+    await callback.message.edit_reply_markup()
+    await callback.message.answer("Добавление администратора отменено.")
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("admin_reply_"))
 async def callback_admin_reply(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -601,7 +636,7 @@ async def callback_admin_reply(callback: CallbackQuery, state: FSMContext) -> No
 
 @router.callback_query(F.data == "admin_events")
 async def callback_admin_events(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -634,7 +669,7 @@ async def callback_admin_events(callback: CallbackQuery, state: FSMContext) -> N
 
 @router.callback_query(F.data == "admin_events_create")
 async def callback_admin_events_create(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -649,7 +684,7 @@ async def callback_admin_events_create(callback: CallbackQuery, state: FSMContex
 
 @router.callback_query(F.data.startswith("admin_event_view_"))
 async def callback_admin_event_view(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -674,7 +709,7 @@ async def callback_admin_event_view(callback: CallbackQuery, state: FSMContext) 
 
 @router.callback_query(F.data.startswith("admin_event_edit_"))
 async def callback_admin_event_edit(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -715,7 +750,7 @@ async def callback_admin_event_edit(callback: CallbackQuery, state: FSMContext) 
 
 @router.callback_query(F.data.startswith("admin_event_photo_delete_"))
 async def callback_admin_event_photo_delete(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -743,7 +778,7 @@ async def callback_admin_event_photo_delete(callback: CallbackQuery, state: FSMC
 
 @router.callback_query(F.data.startswith("admin_event_toggle_"))
 async def callback_admin_event_toggle(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -769,7 +804,7 @@ async def callback_admin_event_toggle(callback: CallbackQuery, state: FSMContext
 
 @router.callback_query(F.data.startswith("admin_event_delete_"))
 async def callback_admin_event_delete(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
@@ -803,7 +838,7 @@ async def callback_admin_event_delete(callback: CallbackQuery, state: FSMContext
 
 @router.message(CompanyEditStates.waiting_for_description)
 async def process_company_description(message: Message, state: FSMContext) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -842,9 +877,51 @@ async def process_company_description(message: Message, state: FSMContext) -> No
     )
 
 
+@router.message(AdminManageStates.waiting_for_username)
+async def process_admin_add_admin(message: Message, state: FSMContext) -> None:
+    if not await is_admin(message.from_user.id):
+        await message.answer("У тебя нет доступа к админ-панели.")
+        return
+
+    username = normalize_username(message.text)
+    if not username:
+        await message.answer(
+            "Укажи username в формате @username или username.",
+            reply_markup=get_add_admin_cancel_keyboard(),
+        )
+        return
+
+    status, user = await grant_admin_by_username(username)
+    if status in {"invalid_username", "not_found"}:
+        await message.answer(
+            f"Пользователь @{html.escape(username)} не найден в базе.\n"
+            "Попроси его запустить бота и убедиться, что у него установлен username в Telegram.",
+            parse_mode="HTML",
+            reply_markup=get_add_admin_cancel_keyboard(),
+        )
+        return
+
+    await state.clear()
+    user_label = f"@{html.escape(user.username)}" if user and user.username else f"ID {user.telegram_id}"
+
+    if status == "already_admin":
+        await message.answer(
+            f"{user_label} уже является администратором.",
+            parse_mode="HTML",
+            reply_markup=get_admin_keyboard(),
+        )
+        return
+
+    await message.answer(
+        f"{user_label} добавлен в администраторы.",
+        parse_mode="HTML",
+        reply_markup=get_admin_keyboard(),
+    )
+
+
 @router.message(AdminReplyStates.waiting_for_reply)
 async def process_admin_reply(message: Message, state: FSMContext, bot: Bot) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -880,7 +957,7 @@ async def process_admin_reply(message: Message, state: FSMContext, bot: Bot) -> 
 
 @router.message(AdminDirectMessageStates.waiting_for_user_id)
 async def process_admin_direct_message_user_id(message: Message, state: FSMContext) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -922,7 +999,7 @@ async def process_admin_direct_message_user_id(message: Message, state: FSMConte
 
 @router.message(AdminDirectMessageStates.waiting_for_message)
 async def process_admin_direct_message(message: Message, state: FSMContext, bot: Bot) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -970,7 +1047,7 @@ async def process_admin_direct_message(message: Message, state: FSMContext, bot:
 
 @router.message(AdminBroadcastStates.waiting_for_message)
 async def process_admin_broadcast(message: Message, state: FSMContext, bot: Bot) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -1070,7 +1147,7 @@ def _parse_capacity(value: str) -> int | None:
 
 @router.message(EventCreateStates.waiting_for_title)
 async def process_event_create_title(message: Message, state: FSMContext) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -1086,7 +1163,7 @@ async def process_event_create_title(message: Message, state: FSMContext) -> Non
 
 @router.message(EventCreateStates.waiting_for_description)
 async def process_event_create_description(message: Message, state: FSMContext) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -1102,7 +1179,7 @@ async def process_event_create_description(message: Message, state: FSMContext) 
 
 @router.message(EventCreateStates.waiting_for_capacity)
 async def process_event_create_capacity(message: Message, state: FSMContext) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -1118,7 +1195,7 @@ async def process_event_create_capacity(message: Message, state: FSMContext) -> 
 
 @router.message(EventCreateStates.waiting_for_success_message)
 async def process_event_create_success(message: Message, state: FSMContext) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -1134,7 +1211,7 @@ async def process_event_create_success(message: Message, state: FSMContext) -> N
 
 @router.message(EventCreateStates.waiting_for_reserve_message)
 async def process_event_create_reserve(message: Message, state: FSMContext) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -1150,7 +1227,7 @@ async def process_event_create_reserve(message: Message, state: FSMContext) -> N
 
 @router.message(EventCreateStates.waiting_for_photo)
 async def process_event_create_photo(message: Message, state: FSMContext, bot: Bot) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -1208,7 +1285,7 @@ async def process_event_create_photo(message: Message, state: FSMContext, bot: B
 
 @router.message(EventEditStates.waiting_for_text)
 async def process_event_edit_text(message: Message, state: FSMContext) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -1259,7 +1336,7 @@ async def process_event_edit_text(message: Message, state: FSMContext) -> None:
 
 @router.message(EventEditStates.waiting_for_capacity)
 async def process_event_edit_capacity(message: Message, state: FSMContext) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -1291,7 +1368,7 @@ async def process_event_edit_capacity(message: Message, state: FSMContext) -> No
 
 @router.message(EventEditStates.waiting_for_photo)
 async def process_event_edit_photo(message: Message, state: FSMContext, bot: Bot) -> None:
-    if not is_admin(message.from_user.id):
+    if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -1334,7 +1411,7 @@ async def process_event_edit_photo(message: Message, state: FSMContext, bot: Bot
 
 @router.callback_query(F.data == "admin_back")
 async def callback_admin_back(callback: CallbackQuery, state: FSMContext) -> None:
-    if not is_admin(callback.from_user.id):
+    if not await is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
