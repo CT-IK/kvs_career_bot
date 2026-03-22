@@ -32,7 +32,7 @@ class AdminBroadcastStates(StatesGroup):
 
 
 class AdminDirectMessageStates(StatesGroup):
-    waiting_for_user_id = State()
+    waiting_for_username = State()
     waiting_for_message = State()
 
 
@@ -60,7 +60,7 @@ def get_admin_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="Синхронизировать вакансии", callback_data="admin_sync")],
             [InlineKeyboardButton(text="Рассылка", callback_data="admin_broadcast")],
-            [InlineKeyboardButton(text="Сообщение по ID", callback_data="admin_direct_message")],
+            [InlineKeyboardButton(text="Сообщение по username", callback_data="admin_direct_message")],
             [InlineKeyboardButton(text="Добавить администратора", callback_data="admin_add_admin")],
             [InlineKeyboardButton(text="Компании", callback_data="admin_companies")],
             [InlineKeyboardButton(text="Мероприятия", callback_data="admin_events")],
@@ -548,12 +548,13 @@ async def callback_admin_direct_message(callback: CallbackQuery, state: FSMConte
         return
 
     await state.clear()
-    await state.set_state(AdminDirectMessageStates.waiting_for_user_id)
+    await state.set_state(AdminDirectMessageStates.waiting_for_username)
     await callback.message.answer(
-        "Отправь Telegram ID пользователя, которому нужно написать от имени бота.",
+        "Отправь username пользователя в формате @username или username.\n\n"
+        "Пользователь должен быть в базе и хотя бы один раз запустить бота.",
         reply_markup=get_direct_message_cancel_keyboard(),
     )
-    await callback.answer("Режим сообщения по ID включён")
+    await callback.answer("Режим сообщения по username включён")
 
 
 @router.callback_query(F.data == "admin_direct_message_cancel")
@@ -564,7 +565,7 @@ async def callback_admin_direct_message_cancel(callback: CallbackQuery, state: F
 
     await state.clear()
     await callback.message.edit_reply_markup()
-    await callback.message.answer("Отправка сообщения по ID отменена.")
+    await callback.message.answer("Отправка сообщения по username отменена.")
     await callback.answer()
 
 
@@ -955,40 +956,52 @@ async def process_admin_reply(message: Message, state: FSMContext, bot: Bot) -> 
     await message.answer("Ответ отправлен пользователю.")
 
 
-@router.message(AdminDirectMessageStates.waiting_for_user_id)
-async def process_admin_direct_message_user_id(message: Message, state: FSMContext) -> None:
+@router.message(AdminDirectMessageStates.waiting_for_username)
+async def process_admin_direct_message_username(message: Message, state: FSMContext) -> None:
     if not await is_admin(message.from_user.id):
         await state.clear()
         return
 
-    raw_user_id = (message.text or "").strip()
-    if not raw_user_id.lstrip("-").isdigit():
+    username = normalize_username(message.text)
+    if not username:
         await message.answer(
-            "ID должен быть числом. Отправь корректный Telegram ID пользователя.",
+            "Укажи username в формате @username или username.",
             reply_markup=get_direct_message_cancel_keyboard(),
         )
         return
 
-    target_user_id = int(raw_user_id)
     async with async_session_maker() as session:
-        user = (await session.execute(select(User).where(User.telegram_id == target_user_id))).scalar_one_or_none()
+        user = (
+            await session.execute(
+                select(User)
+                .where(func.lower(User.username) == username)
+                .order_by(User.last_activity.desc().nullslast(), User.id.desc())
+            )
+        ).scalars().first()
 
-    await state.update_data(direct_message_user_id=target_user_id)
+    if not user or not user.telegram_id:
+        await message.answer(
+            f"Пользователь @{html.escape(username)} не найден в базе.\n"
+            "Попроси его запустить бота и убедиться, что у него установлен username в Telegram.",
+            parse_mode="HTML",
+            reply_markup=get_direct_message_cancel_keyboard(),
+        )
+        return
+
+    target_user_id = user.telegram_id
+
+    await state.update_data(direct_message_user_id=target_user_id, direct_message_username=user.username)
     await state.set_state(AdminDirectMessageStates.waiting_for_message)
 
-    if user and (user.first_name or user.last_name):
-        user_label = html.escape(" ".join(part for part in [user.first_name, user.last_name] if part))
-        text = (
-            f"Получатель: <b>{user_label}</b>\n"
-            f"Telegram ID: <code>{target_user_id}</code>\n\n"
-            "Отправь сообщение, и бот перешлёт его пользователю."
-        )
-    else:
-        text = (
-            f"Получатель: <code>{target_user_id}</code>\n\n"
-            "Пользователь не найден в базе, но бот всё равно попробует отправить сообщение.\n"
-            "Отправь сообщение."
-        )
+    user_name = " ".join(part for part in [user.first_name, user.last_name] if part).strip()
+    user_label = f"@{html.escape(user.username)}" if user.username else f"<code>{target_user_id}</code>"
+    details = [f"Получатель: {user_label}"]
+    if user_name:
+        details.append(f"Имя: <b>{html.escape(user_name)}</b>")
+    details.append(f"Telegram ID: <code>{target_user_id}</code>")
+    details.append("")
+    details.append("Отправь сообщение, и бот перешлёт его пользователю.")
+    text = "\n".join(details)
 
     await message.answer(
         text,
@@ -1009,6 +1022,7 @@ async def process_admin_direct_message(message: Message, state: FSMContext, bot:
 
     data = await state.get_data()
     target_user_id = data.get("direct_message_user_id")
+    target_username = data.get("direct_message_username")
     if not target_user_id:
         await state.clear()
         await message.answer("Не удалось определить получателя.")

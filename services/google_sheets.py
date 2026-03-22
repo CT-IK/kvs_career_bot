@@ -6,6 +6,7 @@ from config import EVENTS_GOOGLE_SHEETS_URL, GOOGLE_CREDENTIALS_FILE, GOOGLE_SHE
 from database.models import Vacancy, Company, Division, Event, EventRegistration, User
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func
+from services.image_generator import sync_vacancy_image_cache
 from datetime import datetime
 from services.company_utils import clean_company_name, normalize_company_name
 
@@ -796,6 +797,7 @@ async def sync_vacancies_to_db(session: AsyncSession, clear_existing: bool = Tru
     if not vacancies_data:
         await sync_company_reference_data_from_sheets(session, spreadsheet)
         await session.commit()
+        await sync_vacancy_image_cache()
         return 0
 
     if clear_existing:
@@ -804,9 +806,11 @@ async def sync_vacancies_to_db(session: AsyncSession, clear_existing: bool = Tru
     
     # Добавляем новые
     synced_count = 0
+    created_vacancies = []
     for vac_data in vacancies_data:
         new_vacancy = Vacancy(**vac_data)
         session.add(new_vacancy)
+        created_vacancies.append(new_vacancy)
         synced_count += 1
 
     created_companies, created_divisions = await _sync_companies_and_divisions(session, vacancies_data)
@@ -818,6 +822,7 @@ async def sync_vacancies_to_db(session: AsyncSession, clear_existing: bool = Tru
     ) = await sync_company_reference_data_from_sheets(session, spreadsheet)
     
     await session.commit()
+    await sync_vacancy_image_cache(vacancies=created_vacancies)
     
     _safe_print("="*50)
     _safe_print(f"✅ СИНХРОНИЗИРОВАНО: {synced_count} вакансий")

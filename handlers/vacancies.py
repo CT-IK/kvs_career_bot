@@ -2,7 +2,7 @@ import html
 
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto, FSInputFile
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto, FSInputFile, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select, func, distinct
@@ -24,6 +24,7 @@ from services.company_utils import (
 from services.course_utils import COURSE_LEVELS, format_course_label, parse_course_callback
 from services.event_photos import get_event_photo_input
 from services.google_sheets import export_event_registrations_to_sheet
+from services.image_generator import get_cached_or_generate
 from services.user_names import format_full_name, validate_name_part
 
 
@@ -52,7 +53,7 @@ MENU_IMAGE_PATH = resolve_image_path(
     ASSETS_PATH / "menu_picture.png",
 )
 VACANCY_IMAGE_PATH = resolve_image_path(
-    ASSETS_PATH / "vacancy_card.jpg",
+    ASSETS_PATH / "vacancy_card.png",
     ASSETS_PATH / "vacancy_card.jpeg",
     ASSETS_PATH / "vacancy_card.png",
 )
@@ -62,15 +63,26 @@ ABOUT_US_IMAGE_PATH = resolve_image_path(
     ASSETS_PATH / "about_us.png",
 )
 COMPANY_IMAGE_PATH = resolve_image_path(
-    ASSETS_PATH / "company_card.jpg",
-    ASSETS_PATH / "company_card.jpeg",
+    ASSETS_PATH / "company_card.png",
+    ASSETS_PATH / "company_card.png",
     ASSETS_PATH / "company_card.png",
 )
 DIVISION_IMAGE_PATH = resolve_image_path(
-    ASSETS_PATH / "division_card.jpg",
-    ASSETS_PATH / "division_card.jpeg",
+    ASSETS_PATH / "division_card.png",
+    ASSETS_PATH / "division_card.png",
     ASSETS_PATH / "division_card.png",
 )
+
+
+def get_vacancy_photo_input(vacancy: Vacancy):
+    """Return a generated image for one vacancy with a static-template fallback."""
+    try:
+        image_bytes = get_cached_or_generate(vacancy)
+        return BufferedInputFile(image_bytes, filename=f"vacancy_{vacancy.id}.png")
+    except Exception:
+        if VACANCY_IMAGE_PATH:
+            return FSInputFile(VACANCY_IMAGE_PATH)
+        raise
 
 router = Router()
 
@@ -147,9 +159,10 @@ def get_main_menu_keyboard(user_faculty: str = None, vacancies_count: int = 0):
     """Главное меню с кнопками"""
     keyboard = [
         [InlineKeyboardButton(text="Мой профиль", callback_data="profile")],
-        [InlineKeyboardButton(text="Обратная связь", callback_data="feedback")],
-        [InlineKeyboardButton(text="Компании-партнёры", callback_data="companies_list")],
+        [InlineKeyboardButton(text="Компании-партнеры", callback_data="companies_list")],
         [InlineKeyboardButton(text="Вакансии", callback_data="vacancies_menu")],
+        [InlineKeyboardButton(text="Мероприятия", callback_data="events_list")],
+        [InlineKeyboardButton(text="Обратная связь", callback_data="feedback")],
         [InlineKeyboardButton(text="О нас", callback_data="about_us")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -159,10 +172,10 @@ def get_main_menu_keyboard(user_faculty: str = None, vacancies_count: int = 0):
     """Build the main user menu."""
     keyboard = [
         [InlineKeyboardButton(text="Мой профиль", callback_data="profile")],
-        [InlineKeyboardButton(text="Обратная связь", callback_data="feedback")],
         [InlineKeyboardButton(text="Компании-партнеры", callback_data="companies_list")],
-        [InlineKeyboardButton(text="Мероприятия", callback_data="events_list")],
         [InlineKeyboardButton(text="Вакансии", callback_data="vacancies_menu")],
+        [InlineKeyboardButton(text="Мероприятия", callback_data="events_list")],
+        [InlineKeyboardButton(text="Обратная связь", callback_data="feedback")],
         [InlineKeyboardButton(text="О нас", callback_data="about_us")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -652,7 +665,37 @@ async def process_feedback_message(message: Message, state: FSMContext, bot: Bot
         if user else message.from_user.full_name
     )
     faculty_raw = user.faculty if user else "Не указан"
-    feedback_text = message.text or message.caption or "[Не текстовое сообщение]"
+    content_label = "[Не текстовое сообщение]"
+    if message.photo:
+        content_label = "[Фото]"
+    elif message.animation:
+        content_label = "[GIF]"
+    elif message.video:
+        content_label = "[Видео]"
+    elif message.document:
+        content_label = "[Документ]"
+    elif message.voice:
+        content_label = "[Голосовое сообщение]"
+    elif message.audio:
+        content_label = "[Аудио]"
+    elif message.video_note:
+        content_label = "[Видео-сообщение]"
+    elif message.sticker:
+        content_label = "[Стикер]"
+
+    feedback_text = message.text or message.caption or content_label
+    has_attachment = any(
+        (
+            message.photo,
+            message.animation,
+            message.video,
+            message.document,
+            message.voice,
+            message.audio,
+            message.video_note,
+            message.sticker,
+        )
+    )
 
     user_info = html.escape(user_info_raw)
     user_name = html.escape(user_name_raw)
@@ -681,6 +724,8 @@ async def process_feedback_message(message: Message, state: FSMContext, bot: Bot
                 parse_mode="HTML",
                 reply_markup=get_feedback_admin_keyboard(message.from_user.id),
             )
+            if has_attachment:
+                await message.copy_to(chat_id=admin_id)
             sent_count += 1
         except Exception:
             pass
@@ -957,7 +1002,7 @@ async def callback_my_vacancies(callback: CallbackQuery):
         # Удаляем старое сообщение и отправляем фото
         await callback.message.delete()
         
-        photo = FSInputFile(VACANCY_IMAGE_PATH)
+        photo = get_vacancy_photo_input(vacancy)
         
         await callback.message.answer_photo(
             photo=photo,
@@ -999,7 +1044,7 @@ async def callback_all_vacancies(callback: CallbackQuery):
         # Удаляем старое сообщение и отправляем фото
         await callback.message.delete()
         
-        photo = FSInputFile(VACANCY_IMAGE_PATH)
+        photo = get_vacancy_photo_input(vacancy)
         
         await callback.message.answer_photo(
             photo=photo,
@@ -1084,7 +1129,7 @@ async def callback_sphere_vacancies(callback: CallbackQuery):
         # Удаляем старое сообщение и отправляем фото
         await callback.message.delete()
         
-        photo = FSInputFile(VACANCY_IMAGE_PATH)
+        photo = get_vacancy_photo_input(vacancy)
         
         await callback.message.answer_photo(
             photo=photo,
@@ -1182,7 +1227,7 @@ async def callback_vacancy_navigation(callback: CallbackQuery):
         has_company_desc = await check_company_has_description(session, vacancy.organization)
         
         # Получаем или генерируем изображение
-        photo = FSInputFile(VACANCY_IMAGE_PATH)
+        photo = get_vacancy_photo_input(vacancy)
         
         # Редактируем медиа (картинку) вместо текста
         new_media = InputMediaPhoto(
@@ -1255,6 +1300,31 @@ async def callback_profile(callback: CallbackQuery):
 @router.callback_query(F.data == "companies_list")
 async def callback_companies_list(callback: CallbackQuery):
     """Показать список компаний для пользователя"""
+    text = "<b>Компании-партнеры</b>\n\nВ разработке, скоро будет."
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
+        ]
+    )
+
+    if callback.message.photo:
+        await callback.message.delete()
+        await callback.message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
+    else:
+        await callback.message.edit_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
+
+    await callback.message.answer("🤗")
+    await callback.answer()
+    return
+
     async with async_session_maker() as session:
         vacancy_companies_result = await session.execute(
             select(distinct(Vacancy.organization))
@@ -1555,7 +1625,7 @@ async def callback_division_vacancies(callback: CallbackQuery):
         )
         
         await callback.message.delete()
-        photo = FSInputFile(VACANCY_IMAGE_PATH)
+        photo = get_vacancy_photo_input(vacancy)
         await callback.message.answer_photo(
             photo=photo,
             caption=caption,
@@ -1597,7 +1667,7 @@ async def callback_company_vacancies(callback: CallbackQuery):
         )
         
         await callback.message.delete()
-        photo = FSInputFile(VACANCY_IMAGE_PATH)
+        photo = get_vacancy_photo_input(vacancy)
         await callback.message.answer_photo(
             photo=photo,
             caption=caption,
@@ -1912,7 +1982,7 @@ async def callback_back_to_vacancy(callback: CallbackQuery):
         # Удаляем текст и отправляем фото
         await callback.message.delete()
         
-        photo = FSInputFile(VACANCY_IMAGE_PATH)
+        photo = get_vacancy_photo_input(vacancy)
         
         await callback.message.answer_photo(
             photo=photo,

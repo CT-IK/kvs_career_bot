@@ -267,24 +267,16 @@ async def process_info_source_callback(callback: CallbackQuery, state: FSMContex
         await session.commit()
     
     # Получаем количество вакансий для нового пользователя
-    from handlers.vacancies import get_user_vacancies_count, get_main_menu_keyboard
+    from handlers.vacancies import get_user_vacancies_count, show_main_menu_or_registration
     async with async_session_maker() as session:
         vacancies_count = await get_user_vacancies_count(session, data["faculty"])
     
     success_text = f"""
-        
-      ✅ <b>Регистрация завершена!</b>
-      
+✅ <b>Регистрация завершена!</b>
 
-Добро пожаловать, <b>{data['first_name']}</b>!
+""".strip()
 
-Твой факультет: <b>{data['faculty']}</b>
-Для тебя доступно: <b>{vacancies_count}</b> вакансий
-
-Выбери действие:
-"""
-    
-    reply_markup = get_main_menu_keyboard(data["faculty"], vacancies_count)
+    await callback.answer("🎉 Регистрация завершена!")
 
     if CONGRATULATION_GIF_PATH.exists():
         try:
@@ -292,22 +284,33 @@ async def process_info_source_callback(callback: CallbackQuery, state: FSMContex
         except TelegramBadRequest:
             pass
 
-        await callback.message.answer_animation(
-            animation=FSInputFile(CONGRATULATION_GIF_PATH),
-            caption=success_text,
-            parse_mode="HTML",
-            reply_markup=reply_markup
-        )
+        try:
+            await callback.message.answer_animation(
+                animation=FSInputFile(CONGRATULATION_GIF_PATH),
+                caption=success_text,
+                parse_mode="HTML",
+            )
+        except TelegramBadRequest:
+            logger.warning("Failed to send congratulation GIF: %s", CONGRATULATION_GIF_PATH)
+            await callback.message.answer(
+                success_text,
+                parse_mode="HTML",
+            )
     else:
         logger.warning("Congratulation GIF not found: %s", CONGRATULATION_GIF_PATH)
-        await callback.message.edit_text(
-            success_text,
-            parse_mode="HTML",
-            reply_markup=reply_markup
-        )
-    
+        try:
+            await callback.message.edit_text(
+                success_text,
+                parse_mode="HTML",
+            )
+        except TelegramBadRequest:
+            await callback.message.answer(
+                success_text,
+                parse_mode="HTML",
+            )
+
     await state.clear()
-    await callback.answer("🎉 Регистрация завершена!")
+    await show_main_menu_or_registration(callback.message, state, callback.from_user.id)
 
 
 # Обработка текстового ввода для курса (fallback)
