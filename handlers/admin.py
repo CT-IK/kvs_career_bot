@@ -15,6 +15,7 @@ from services.admins import grant_admin_by_username, is_admin, normalize_usernam
 from services.company_utils import clean_company_name, normalize_company_name
 from services.event_photos import delete_event_photo, get_event_photo_input, save_event_photo
 from services.google_sheets import delete_event_spreadsheet, ensure_event_spreadsheet, export_event_registrations_to_sheet, sync_vacancies_to_db
+from services.user_metrics import get_metrics_text
 
 router = Router()
 
@@ -65,6 +66,7 @@ def get_admin_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Компании", callback_data="admin_companies")],
             [InlineKeyboardButton(text="Мероприятия", callback_data="admin_events")],
             [InlineKeyboardButton(text="Обновить статистику", callback_data="admin_stats")],
+            [InlineKeyboardButton(text="Метрика действий", callback_data="admin_metrics")],
             [InlineKeyboardButton(text="Меню", callback_data="main_menu")],
         ]
     )
@@ -147,6 +149,17 @@ def get_event_admin_keyboard(event: Event) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton(text="К списку мероприятий", callback_data="admin_events")])
     rows.append([InlineKeyboardButton(text="Админ-панель", callback_data="admin_back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def get_metrics_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Обновить метрику", callback_data="admin_metrics")],
+            [InlineKeyboardButton(text="Обновить статистику", callback_data="admin_stats")],
+            [InlineKeyboardButton(text="Админ-панель", callback_data="admin_back")],
+            [InlineKeyboardButton(text="Меню", callback_data="main_menu")],
+        ]
+    )
 
 
 async def get_stats_text() -> str:
@@ -326,6 +339,28 @@ async def callback_admin_stats(callback: CallbackQuery, state: FSMContext) -> No
             await callback.answer("Статистика уже актуальна")
             return
         await callback.answer("Не удалось обновить статистику", show_alert=True)
+
+
+@router.callback_query(F.data == "admin_metrics")
+async def callback_admin_metrics(callback: CallbackQuery, state: FSMContext) -> None:
+    if not await is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    await state.clear()
+    metrics_text = await get_metrics_text()
+    try:
+        if callback.message.photo:
+            await callback.message.delete()
+            await callback.message.answer(metrics_text, parse_mode="HTML", reply_markup=get_metrics_keyboard())
+        else:
+            await callback.message.edit_text(metrics_text, parse_mode="HTML", reply_markup=get_metrics_keyboard())
+        await callback.answer("Метрика обновлена")
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            await callback.answer("Метрика уже актуальна")
+            return
+        await callback.answer("Не удалось обновить метрику", show_alert=True)
 
 
 @router.callback_query(F.data == "admin_sync")

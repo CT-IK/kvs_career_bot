@@ -25,6 +25,7 @@ class User(Base):
     last_activity = Column(DateTime, default=datetime.utcnow)
 
     event_registrations = relationship("EventRegistration", back_populates="user")
+    actions = relationship("UserAction", back_populates="user")
 
 
 class Vacancy(Base):
@@ -65,6 +66,23 @@ class Statistics(Base):
     registered_users = Column(Integer, default=0)
     total_vacancies = Column(Integer, default=0)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class UserAction(Base):
+    __tablename__ = "user_actions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    telegram_id = Column(BigInteger, nullable=False, index=True)
+    username = Column(String(64), index=True)
+    update_type = Column(String(32), nullable=False, index=True)
+    action = Column(String(100), nullable=False, index=True)
+    raw_value = Column(Text)
+    chat_type = Column(String(32))
+    fsm_state = Column(String(255), index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    user = relationship("User", back_populates="actions")
 
 
 class Company(Base):

@@ -8,6 +8,7 @@ from sqlalchemy import select, update
 from database.db import async_session_maker
 from database.models import User as UserModel
 from services.admins import normalize_username
+from services.user_metrics import build_user_action
 
 
 class ActivityMiddleware(BaseMiddleware):
@@ -44,17 +45,26 @@ class ActivityMiddleware(BaseMiddleware):
                         db_user.username = normalized_username
                         db_user.last_activity = datetime.utcnow()
                     else:
-                        session.add(
-                            UserModel(
-                                telegram_id=user.id,
-                                username=normalized_username,
-                                first_name=user.first_name,
-                                last_name=user.last_name,
-                                is_registered=False,
-                                registered_at=None,
-                                last_activity=datetime.utcnow(),
-                            )
+                        db_user = UserModel(
+                            telegram_id=user.id,
+                            username=normalized_username,
+                            first_name=user.first_name,
+                            last_name=user.last_name,
+                            is_registered=False,
+                            registered_at=None,
+                            last_activity=datetime.utcnow(),
                         )
+                        session.add(db_user)
+                        await session.flush()
+
+                    session.add(
+                        await build_user_action(
+                            event=event,
+                            data=data,
+                            db_user=db_user,
+                            normalized_username=normalized_username,
+                        )
+                    )
 
                     await session.commit()
             except Exception:
