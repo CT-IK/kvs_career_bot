@@ -37,7 +37,7 @@ class RegistrationStates(StatesGroup):
 
 def get_step_text(step: int, total: int, title: str, question: str) -> str:
     return f"""
-❤️ <b>Комитет внешних связей</b> 🖤
+❤️ <b>Комитет Внешних Связей</b> 🖤
 
 <b>{title}</b>
 
@@ -51,7 +51,7 @@ def get_step_text(step: int, total: int, title: str, question: str) -> str:
 
 def get_consent_text() -> str:
     return """
-❤️ <b>Комитет внешних связей</b> 🖤
+❤️ <b>Комитет Внешних Связей</b> 🖤
 
 <b>Перед началом работы ознакомься с документами</b>
 
