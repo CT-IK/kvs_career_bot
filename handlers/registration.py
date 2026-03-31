@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 CONGRATULATION_GIF_PATH = Path(__file__).parent.parent / "assets" / "congratulation" / "pug.gif"
 PRIVACY_POLICY_URL = "https://docs.google.com/document/d/1oHQcLz6OMFWezlRRNkx1HHEkNfH__JBaA5FOdKa4o5k/edit?tab=t.0#heading=h.ydfzj89gl84q"
 PERSONAL_DATA_CONSENT_URL = "https://docs.google.com/document/d/1PXvgwN2rzhsJ-VTgnj9hQxl4b58kOd7d6cRLvfQQL6U/edit?usp=sharing"
+NO_FACULTY_LABEL = "Нет моего направления"
 
 
 class RegistrationStates(StatesGroup):
@@ -114,6 +115,7 @@ def get_faculty_keyboard():
             row = []
     if row:
         keyboard.append(row)
+    keyboard.append([InlineKeyboardButton(text=NO_FACULTY_LABEL, callback_data=f"reg_faculty_{NO_FACULTY_LABEL}")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
