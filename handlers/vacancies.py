@@ -57,11 +57,18 @@ VACANCY_IMAGE_PATH = resolve_image_path(
     ASSETS_PATH / "vacancy_card.jpeg",
     ASSETS_PATH / "vacancy_card.png",
 )
-ABOUT_US_IMAGE_PATH = resolve_image_path(
-    ASSETS_PATH / "about_us.jpg",
-    ASSETS_PATH / "about_us.jpeg",
-    ASSETS_PATH / "about_us.png",
-)
+ABOUT_US_IMAGE_PATHS = [
+    path
+    for path in (
+        resolve_image_path(ASSETS_PATH / "плашка о направлении информ.png"),
+        resolve_image_path(ASSETS_PATH / "плашка о направлении нод.png"),
+        resolve_image_path(ASSETS_PATH / "плашка о направлении нпр.png"),
+        resolve_image_path(ASSETS_PATH / "плашка о направлении нргк.png"),
+        resolve_image_path(ASSETS_PATH / "плашка о направлении нркк.png"),
+        resolve_image_path(ASSETS_PATH / "плашка о направлении спонсорка.png"),
+    )
+    if path is not None
+]
 COMPANY_IMAGE_PATH = resolve_image_path(
     ASSETS_PATH / "company_card.png",
     ASSETS_PATH / "company_card.png",
@@ -633,14 +640,21 @@ async def callback_about_us(callback: CallbackQuery):
     ])
     
     await callback.message.delete()
-    if ABOUT_US_IMAGE_PATH:
-        photo = FSInputFile(ABOUT_US_IMAGE_PATH)
-        await callback.message.answer_photo(
-            photo=photo,
-            caption=text,
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
+    if ABOUT_US_IMAGE_PATHS:
+        media = []
+        for index, path in enumerate(ABOUT_US_IMAGE_PATHS):
+            if index == 0:
+                media.append(
+                    InputMediaPhoto(
+                        media=FSInputFile(path),
+                        caption=text,
+                        parse_mode="HTML",
+                    )
+                )
+            else:
+                media.append(InputMediaPhoto(media=FSInputFile(path)))
+        await callback.message.answer_media_group(media=media)
+        await callback.message.answer("Выбери действие:", reply_markup=keyboard)
     else:
         await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
     await callback.answer()

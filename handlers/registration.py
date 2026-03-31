@@ -21,9 +21,12 @@ router = Router()
 REGISTRATION_TOTAL_STEPS = 6
 logger = logging.getLogger(__name__)
 CONGRATULATION_GIF_PATH = Path(__file__).parent.parent / "assets" / "congratulation" / "pug.gif"
+PRIVACY_POLICY_URL = "https://docs.google.com/document/d/1oHQcLz6OMFWezlRRNkx1HHEkNfH__JBaA5FOdKa4o5k/edit?tab=t.0#heading=h.ydfzj89gl84q"
+PERSONAL_DATA_CONSENT_URL = "https://docs.google.com/document/d/1PXvgwN2rzhsJ-VTgnj9hQxl4b58kOd7d6cRLvfQQL6U/edit?usp=sharing"
 
 
 class RegistrationStates(StatesGroup):
+    waiting_for_consent = State()
     waiting_for_first_name = State()
     waiting_for_last_name = State()
     waiting_for_patronymic = State()
@@ -44,6 +47,48 @@ def get_step_text(step: int, total: int, title: str, question: str) -> str:
 <b>Шаг {step} из {total}</b>
 <blockquote>{question}</blockquote>
 """.strip()
+
+
+def get_consent_text() -> str:
+    return """
+❤️ <b>Комитет внешних связей</b> 🖤
+
+<b>Перед началом работы ознакомься с документами</b>
+
+Пожалуйста, изучи:
+• <a href="{privacy_url}">Политику конфиденциальности бота</a>
+• <a href="{consent_url}">Согласие на обработку персональных данных</a>
+
+<blockquote>Нажимая кнопку «Далее», ты подтверждаешь, что ознакомился(ась) с Политикой конфиденциальности бота и выражаешь согласие на обработку персональных данных.</blockquote>
+""".strip().format(
+        privacy_url=html.escape(PRIVACY_POLICY_URL, quote=True),
+        consent_url=html.escape(PERSONAL_DATA_CONSENT_URL, quote=True),
+    )
+
+
+def get_consent_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Политика конфиденциальности", url=PRIVACY_POLICY_URL)],
+            [InlineKeyboardButton(text="Согласие на обработку ПДн", url=PERSONAL_DATA_CONSENT_URL)],
+            [InlineKeyboardButton(text="Далее", callback_data="reg_accept_documents")],
+        ]
+    )
+
+
+async def prompt_first_name(target: Message, state: FSMContext):
+    welcome_text = get_step_text(
+        step=1,
+        total=REGISTRATION_TOTAL_STEPS,
+        title="Добро пожаловать!",
+        question="Введи своё имя",
+    )
+    await target.answer(
+        welcome_text,
+        parse_mode="HTML",
+    )
+
+    await state.set_state(RegistrationStates.waiting_for_first_name)
 
 
 def get_course_keyboard():
@@ -82,17 +127,31 @@ def get_info_source_keyboard():
 
 async def start_registration(message: Message, state: FSMContext):
     """Начало регистрации - вызывается из других модулей"""
-    welcome_text = get_step_text(
-        step=1,
-        total=REGISTRATION_TOTAL_STEPS,
-        title="Добро пожаловать!",
-        question="Введи своё имя",
-    )
     await message.answer(
-        welcome_text,
-        parse_mode="HTML"
+        get_consent_text(),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+        reply_markup=get_consent_keyboard(),
     )
-    await state.set_state(RegistrationStates.waiting_for_first_name)
+    await state.set_state(RegistrationStates.waiting_for_consent)
+
+
+@router.callback_query(F.data == "reg_accept_documents", RegistrationStates.waiting_for_consent)
+async def process_documents_consent(callback: CallbackQuery, state: FSMContext):
+    """Переход к регистрации после подтверждения ознакомления с документами."""
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await prompt_first_name(callback.message, state)
+    await callback.answer()
+
+
+@router.message(RegistrationStates.waiting_for_consent)
+async def process_waiting_for_consent(message: Message):
+    """Подсказываем пользователю, что переход возможен только по кнопке."""
+    await message.answer(
+        "Чтобы продолжить, ознакомься с документами выше и нажми кнопку «Далее».",
+        reply_markup=get_consent_keyboard(),
+        disable_web_page_preview=True,
+    )
 
 
 @router.message(RegistrationStates.waiting_for_first_name)
