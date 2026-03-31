@@ -102,6 +102,7 @@ class FeedbackStates(StatesGroup):
 # Маппинг факультетов из бота в поля БД
 FACULTY_TO_DB_FIELD = {
     "ИТиАБД": "itiabd",
+    "ИОО": "ioo",
     "МЭО": "meo",
     "ФЭБ": "feb",
     "СНиМК": "snimk",

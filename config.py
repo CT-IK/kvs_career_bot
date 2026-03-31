@@ -67,6 +67,7 @@ SEED_DEMO_DATA = _env_bool("SEED_DEMO_DATA", default=False)
 # Факультеты
 FACULTIES = {
     "ИТиАБД": "ИТиАБД",
+    "ИОО": "ИОО",
     "МЭО": "МЭО",
     "ФЭБ": "ФЭБ",
     "СНиМК": "СНиМК",

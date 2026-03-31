@@ -46,6 +46,7 @@ class Vacancy(Base):
     feature3 = Column(String(200))
 
     itiabd = Column(Boolean, default=False)
+    ioo = Column(Boolean, default=False)
     finfak = Column(Boolean, default=False)
     vshu = Column(Boolean, default=False)
     nab = Column(Boolean, default=False)

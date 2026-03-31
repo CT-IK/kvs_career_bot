@@ -24,6 +24,7 @@ SHEET_HEADERS = [
     "Особенность 2",
     "Особенность 3",
     "ИТиАБД",
+    "ИОО",
     "ФинФак",
     "ВШУ",
     "НАБ",
@@ -55,6 +56,7 @@ EVENT_REGISTRATION_HEADERS = [
 
 FACULTY_SHEET_TO_DB = {
     "ИТиАБД": "itiabd",
+    "ИОО": "ioo",
     "ФинФак": "finfak",
     "ВШУ": "vshu",
     "НАБ": "nab",
@@ -186,6 +188,7 @@ def _vacancy_to_sheet_row(vacancy: Vacancy) -> list[str]:
         vacancy.feature2 or "",
         vacancy.feature3 or "",
         _bool_to_sheet_value(vacancy.itiabd),
+        _bool_to_sheet_value(vacancy.ioo),
         _bool_to_sheet_value(vacancy.finfak),
         _bool_to_sheet_value(vacancy.vshu),
         _bool_to_sheet_value(vacancy.nab),
@@ -686,6 +689,7 @@ def parse_vacancies_from_sheet(sheet) -> list[dict]:
                 "feature2": vacancy_data.get("Особенность 2", "").strip(),
                 "feature3": vacancy_data.get("Особенность 3", "").strip(),
                 "itiabd": _parse_faculty_field(vacancy_data.get("ИТиАБД", "")),
+                "ioo": _parse_faculty_field(vacancy_data.get("ИОО", "")),
                 "finfak": _parse_faculty_field(vacancy_data.get("ФинФак", "")),
                 "vshu": _parse_faculty_field(vacancy_data.get("ВШУ", "")),
                 "nab": _parse_faculty_field(vacancy_data.get("НАБ", "")),
