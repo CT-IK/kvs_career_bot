@@ -44,7 +44,7 @@ EVENT_REGISTRATIONS_SHEET_TITLE = "Участники"
 EVENT_REGISTRATION_HEADERS = [
     "Статус",
     "Позиция",
-    "Telegram ID",
+    "Username",
     "Имя",
     "Фамилия",
     "Отчество",
@@ -455,7 +455,7 @@ async def export_event_registrations_to_sheet(session: AsyncSession, event: Even
             [
                 status_label,
                 position,
-                str(user.telegram_id or ""),
+                f"@{user.username}" if user.username else "",
                 user.first_name or "",
                 user.last_name or "",
                 user.patronymic or "",
