@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from contextlib import suppress
 
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramBadRequest
@@ -13,6 +14,7 @@ from middleware.activity import ActivityMiddleware
 from middleware.subscription import SubscriptionMiddleware
 from services.google_sheets import ensure_vacancies_seeded
 from services.image_generator import pregenerate_vacancy_images
+from services.vacancy_scheduler import run_daily_vacancy_sync_scheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,6 +51,11 @@ async def run_bot_once():
     except Exception as exc:
         logger.warning("Image pregeneration failed: %s", exc)
 
+    vacancy_sync_task = asyncio.create_task(
+        run_daily_vacancy_sync_scheduler(),
+        name="daily-vacancy-sync",
+    )
+
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
 
@@ -77,6 +84,9 @@ async def run_bot_once():
     try:
         await dp.start_polling(bot, skip_updates=True)
     finally:
+        vacancy_sync_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await vacancy_sync_task
         await bot.session.close()
 
 

@@ -63,6 +63,10 @@ EVENTS_GOOGLE_SHEETS_URL = os.getenv(
 GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "")
 SEED_DEMO_DATA = _env_bool("SEED_DEMO_DATA", default=False)
+VACANCY_SYNC_SCHEDULE_ENABLED = _env_bool("VACANCY_SYNC_SCHEDULE_ENABLED", default=True)
+VACANCY_SYNC_HOUR = min(23, max(0, _env_int("VACANCY_SYNC_HOUR", default=5)))
+VACANCY_SYNC_MINUTE = min(59, max(0, _env_int("VACANCY_SYNC_MINUTE", default=30)))
+VACANCY_SYNC_TIMEZONE = os.getenv("VACANCY_SYNC_TIMEZONE", "Europe/Moscow").strip() or "Europe/Moscow"
 
 # Факультеты
 FACULTIES = {
