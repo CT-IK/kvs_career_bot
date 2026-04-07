@@ -243,16 +243,10 @@ def get_vacancy_keyboard(vacancy_id: int, current_index: int, total: int, filter
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-async def check_company_has_description(session, organization: str) -> bool:
-    """Проверить есть ли у компании описание"""
-    if not organization:
-        return False
-    company = await find_company_by_name(session, organization)
-    return company_has_description(company) if company else False
-
-
-async def check_company_has_description(session, organization: str) -> bool:
-    """РџСЂРѕРІРµСЂРёС‚СЊ РµСЃС‚СЊ Р»Рё Сѓ РєРѕРјРїР°РЅРёРё РѕРїРёСЃР°РЅРёРµ."""
+async def check_company_has_description(session, organization: str, vacancy_url: str | None = None) -> bool:
+    """Return whether the vacancy has a company-details screen to show."""
+    if vacancy_url and str(vacancy_url).strip():
+        return True
     if not organization:
         return False
     company = await find_company_by_name(session, organization)
@@ -338,79 +332,119 @@ def format_vacancy_caption(vacancy: Vacancy) -> str:
             return text_value
         return text_value[: max(limit - 3, 0)].rstrip() + "..."
 
-    # Компактный формат для caption
+    vacancy_url = (getattr(vacancy, "vacancy_url", "") or "").strip()
+    title_text = html.escape(vacancy.position or "Вакансия")
+    title_html = (
+        f'<a href="{html.escape(vacancy_url, quote=True)}">{title_text}</a>'
+        if vacancy_url
+        else title_text
+    )
+
     lines = [
-        f"💼 <b>Вакансия: </b>{html.escape(vacancy.position or 'Вакансия')}",
-        f"<b>Компания: </b>{vacancy.organization}",
-        ""
+        f"💼 <b>Вакансия: </b>{title_html}",
+        f"<b>Компания: </b>{html.escape(vacancy.organization or 'Компания')}",
+        "",
     ]
-    
-    # Основная информация
+
     if vacancy.sphere:
-        lines.append(f"<b>Сфера: </b>{vacancy.sphere}")
+        lines.append(f"<b>Сфера: </b>{html.escape(vacancy.sphere)}")
     if vacancy.salary:
-        lines.append(f"<b>Зарплата: </b>{vacancy.salary}")
+        lines.append(f"<b>Зарплата: </b>{html.escape(vacancy.salary)}")
     if vacancy.schedule:
-        lines.append(f"<b>График: </b>{vacancy.schedule}")
+        lines.append(f"<b>График: </b>{html.escape(vacancy.schedule)}")
     if vacancy.work_format:
-        lines.append(f"<b>Формат: </b>{vacancy.work_format}")
+        lines.append(f"<b>Формат: </b>{html.escape(vacancy.work_format)}")
     if vacancy.employment_format:
-        lines.append(f"<b>Тип занятости: </b>{vacancy.employment_format}")
+        lines.append(f"<b>Тип занятости: </b>{html.escape(vacancy.employment_format)}")
 
-    base_text = "\n".join(lines)
-    description_limit = 150
+    link_lines: list[str] = []
+    if vacancy_url:
+        link_lines = [
+            "",
+            "<b>Ссылка на вакансию:</b>",
+            f'<a href="{html.escape(vacancy_url, quote=True)}">{html.escape(_truncate_plain_text(vacancy_url, 110))}</a>',
+        ]
+
+    description_lines: list[str] = []
     if vacancy.description:
-        remaining = max(0, 980 - len(base_text))
-        description_limit = min(description_limit, remaining)
-        description = _truncate_plain_text(vacancy.description, description_limit)
+        skeleton = "\n".join(lines + ["", "<blockquote></blockquote>"] + link_lines)
+        remaining = max(40, 990 - len(skeleton))
+        description = _truncate_plain_text(vacancy.description, min(220, remaining))
         if description:
-            lines.append(f"\n<blockquote>{html.escape(description)}</blockquote>")
+            description_lines = ["", f"<blockquote>{html.escape(description)}</blockquote>"]
 
-    text = "\n".join(lines)
+    text = "\n".join(lines + description_lines + link_lines)
     if len(text) <= 1000:
         return text
 
-    return base_text if len(base_text) <= 1000 else (
-        f"💼 <b>Вакансия: </b>{html.escape(_truncate_plain_text(vacancy.position, 120))}\n"
-        f"<b>Компания: </b>{html.escape(_truncate_plain_text(vacancy.organization, 120))}"
-    )
+    if vacancy.description:
+        for limit in (160, 120, 80, 40):
+            description = _truncate_plain_text(vacancy.description, limit)
+            candidate_description_lines = ["", f"<blockquote>{html.escape(description)}</blockquote>"] if description else []
+            candidate = "\n".join(lines + candidate_description_lines + link_lines)
+            if len(candidate) <= 1000:
+                return candidate
+
+    if vacancy_url:
+        for url_limit in (90, 70, 50, 30):
+            compact_link_lines = [
+                "",
+                "<b>Ссылка на вакансию:</b>",
+                f'<a href="{html.escape(vacancy_url, quote=True)}">{html.escape(_truncate_plain_text(vacancy_url, url_limit))}</a>',
+            ]
+            candidate = "\n".join(lines + compact_link_lines)
+            if len(candidate) <= 1000:
+                return candidate
+
+    return "\n".join(lines[:2])
 
 
 def format_vacancy(vacancy: Vacancy, show_match: bool = False, user_faculty: str = None) -> str:
     """Форматирование вакансии для текстового отображения (используется в меню без картинок)"""
-    # Определяем эмодзи для сферы
+    vacancy_url = (getattr(vacancy, "vacancy_url", "") or "").strip()
+    title_text = html.escape(vacancy.position or "Вакансия")
+    title_html = (
+        f'<a href="{html.escape(vacancy_url, quote=True)}">{title_text}</a>'
+        if vacancy_url
+        else title_text
+    )
+
     lines = [
-        f"💼 <b>Вакансия: </b>{html.escape(vacancy.position or 'Вакансия')}",
-        f"<b>Компания: </b>{vacancy.organization}",
+        f"💼 <b>Вакансия: </b>{title_html}",
+        f"<b>Компания: </b>{html.escape(vacancy.organization or 'Компания')}",
         ""
     ]
 
-    # Основная информация
     if vacancy.sphere:
-        lines.append(f"<b>Сфера: </b>{vacancy.sphere}")
+        lines.append(f"<b>Сфера: </b>{html.escape(vacancy.sphere)}")
     if vacancy.salary:
-        lines.append(f"<b>Зарплата: </b>{vacancy.salary}")
+        lines.append(f"<b>Зарплата: </b>{html.escape(vacancy.salary)}")
     if vacancy.schedule:
-        lines.append(f"<b>График: </b>{vacancy.schedule}")
+        lines.append(f"<b>График: </b>{html.escape(vacancy.schedule)}")
     if vacancy.work_format:
-        lines.append(f"<b>Формат: </b>{vacancy.work_format}")
+        lines.append(f"<b>Формат: </b>{html.escape(vacancy.work_format)}")
     if vacancy.employment_format:
-        lines.append(f"<b>Тип занятости: </b>{vacancy.employment_format}")
+        lines.append(f"<b>Тип занятости: </b>{html.escape(vacancy.employment_format)}")
 
-    # Описание (краткое)
     if vacancy.description:
         desc = vacancy.description[:150] + "..." if len(vacancy.description) > 150 else vacancy.description
-        lines.append(f"\n<blockquote>{desc}</blockquote>")
+        lines.append(f"\n<blockquote>{html.escape(desc)}</blockquote>")
+
+    if vacancy_url:
+        lines.extend([
+            "",
+            "<b>Ссылка на вакансию:</b>",
+            f'<a href="{html.escape(vacancy_url, quote=True)}">{html.escape(vacancy_url)}</a>',
+        ])
 
     text = "\n".join(lines)
-    # Особенности (бейджи)
     features = []
     if vacancy.feature1:
-        features.append(f"✓ {vacancy.feature1}")
+        features.append(f"✓ {html.escape(vacancy.feature1)}")
     if vacancy.feature2:
-        features.append(f"✓ {vacancy.feature2}")
+        features.append(f"✓ {html.escape(vacancy.feature2)}")
     if vacancy.feature3:
-        features.append(f"✓ {vacancy.feature3}")
+        features.append(f"✓ {html.escape(vacancy.feature3)}")
     
     if features:
         text += f"\n<b>Преимущества:</b>\n" + "\n".join(features)
@@ -1024,7 +1058,7 @@ async def callback_my_vacancies(callback: CallbackQuery):
         caption = format_vacancy_caption(vacancy)
         
         # Проверяем есть ли описание компании
-        has_company_desc = await check_company_has_description(session, vacancy.organization)
+        has_company_desc = await check_company_has_description(session, vacancy.organization, vacancy.vacancy_url)
         
         # Удаляем старое сообщение и отправляем фото
         await callback.message.delete()
@@ -1066,7 +1100,7 @@ async def callback_all_vacancies(callback: CallbackQuery):
         caption = format_vacancy_caption(vacancy)
         
         # Проверяем есть ли описание компании
-        has_company_desc = await check_company_has_description(session, vacancy.organization)
+        has_company_desc = await check_company_has_description(session, vacancy.organization, vacancy.vacancy_url)
         
         # Удаляем старое сообщение и отправляем фото
         await callback.message.delete()
@@ -1151,7 +1185,7 @@ async def callback_sphere_vacancies(callback: CallbackQuery):
         caption =format_vacancy_caption(vacancy)
         
         # Проверяем есть ли описание компании
-        has_company_desc = await check_company_has_description(session, vacancy.organization)
+        has_company_desc = await check_company_has_description(session, vacancy.organization, vacancy.vacancy_url)
         
         # Удаляем старое сообщение и отправляем фото
         await callback.message.delete()
@@ -1251,7 +1285,7 @@ async def callback_vacancy_navigation(callback: CallbackQuery):
             caption = format_vacancy_caption(vacancy)
         
         # Проверяем есть ли описание компании
-        has_company_desc = await check_company_has_description(session, vacancy.organization)
+        has_company_desc = await check_company_has_description(session, vacancy.organization, vacancy.vacancy_url)
         
         # Получаем или генерируем изображение
         photo = get_vacancy_photo_input(vacancy)
@@ -1920,12 +1954,14 @@ async def callback_about_company(callback: CallbackQuery):
         # Получаем описание компании
         company = await find_company_by_name(session, vacancy.organization)
         
-        if not company or not company.description:
-            await callback.answer("Описание компании не найдено", show_alert=True)
-            return
-        
-        # Формируем текст
         vacancy_url = (getattr(vacancy, "vacancy_url", "") or "").strip()
+        company_description = (getattr(company, "description", "") or "").strip()
+
+        if not company_description and not vacancy_url:
+            await callback.answer("Описание компании и ссылка на вакансию не найдены", show_alert=True)
+            return
+
+        # Формируем текст
         vacancy_title = html.escape(vacancy.position or "Вакансия")
         vacancy_title_html = (
             f'<a href="{html.escape(vacancy_url, quote=True)}">{vacancy_title}</a>'
@@ -1935,7 +1971,7 @@ async def callback_about_company(callback: CallbackQuery):
 
         text = f"<b>{html.escape(vacancy.organization or 'Компания')}</b>\n\n"
         text += f"💼 {vacancy_title_html}\n\n"
-        text += f"{company.description}"
+        text += company_description or "Описание компании пока не заполнено."
         if vacancy_url:
             visible_url = html.escape(vacancy_url)
             escaped_url = html.escape(vacancy_url, quote=True)
@@ -2017,7 +2053,7 @@ async def callback_back_to_vacancy(callback: CallbackQuery):
             caption = format_vacancy_caption(vacancy)
         
         # Проверяем есть ли описание компании
-        has_company_desc = await check_company_has_description(session, vacancy.organization)
+        has_company_desc = await check_company_has_description(session, vacancy.organization, vacancy.vacancy_url)
         
         # Удаляем текст и отправляем фото
         await callback.message.delete()
