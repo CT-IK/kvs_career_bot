@@ -338,17 +338,9 @@ def format_vacancy_caption(vacancy: Vacancy) -> str:
             return text_value
         return text_value[: max(limit - 3, 0)].rstrip() + "..."
 
-    vacancy_url = (getattr(vacancy, "vacancy_url", "") or "").strip()
-    title = html.escape(vacancy.position or "Вакансия")
-    title_html = (
-        f'<a href="{html.escape(vacancy_url, quote=True)}">{title}</a>'
-        if vacancy_url
-        else title
-    )
-
     # Компактный формат для caption
     lines = [
-        f"💼 <b>Вакансия: </b>{title_html}",
+        f"💼 <b>Вакансия: </b>{html.escape(vacancy.position or 'Вакансия')}",
         f"<b>Компания: </b>{vacancy.organization}",
         ""
     ]
@@ -365,15 +357,6 @@ def format_vacancy_caption(vacancy: Vacancy) -> str:
     if vacancy.employment_format:
         lines.append(f"<b>Тип занятости: </b>{vacancy.employment_format}")
 
-    if vacancy_url:
-        visible_url = html.escape(_truncate_plain_text(vacancy_url, 90))
-        escaped_url = html.escape(vacancy_url, quote=True)
-        lines.extend([
-            "",
-            "<b>Ссылка на вакансию:</b>",
-            f'<a href="{escaped_url}">{visible_url}</a>',
-        ])
-
     base_text = "\n".join(lines)
     description_limit = 150
     if vacancy.description:
@@ -387,34 +370,17 @@ def format_vacancy_caption(vacancy: Vacancy) -> str:
     if len(text) <= 1000:
         return text
 
-    if len(base_text) <= 1000:
-        return base_text
-
-    fallback_lines = [
-        f"💼 <b>Вакансия: </b>{html.escape(_truncate_plain_text(vacancy.position, 120))}",
-        f"<b>Компания: </b>{html.escape(_truncate_plain_text(vacancy.organization, 120))}",
-    ]
-    if vacancy_url:
-        fallback_lines.extend([
-            "",
-            "<b>Ссылка на вакансию:</b>",
-            html.escape(_truncate_plain_text(vacancy_url, 300)),
-        ])
-    return "\n".join(fallback_lines)
+    return base_text if len(base_text) <= 1000 else (
+        f"💼 <b>Вакансия: </b>{html.escape(_truncate_plain_text(vacancy.position, 120))}\n"
+        f"<b>Компания: </b>{html.escape(_truncate_plain_text(vacancy.organization, 120))}"
+    )
 
 
 def format_vacancy(vacancy: Vacancy, show_match: bool = False, user_faculty: str = None) -> str:
     """Форматирование вакансии для текстового отображения (используется в меню без картинок)"""
     # Определяем эмодзи для сферы
-    vacancy_url = (getattr(vacancy, "vacancy_url", "") or "").strip()
-    title = html.escape(vacancy.position or "Вакансия")
-    title_html = (
-        f'<a href="{html.escape(vacancy_url, quote=True)}">{title}</a>'
-        if vacancy_url
-        else title
-    )
     lines = [
-        f"💼 <b>Вакансия: </b>{title_html}",
+        f"💼 <b>Вакансия: </b>{html.escape(vacancy.position or 'Вакансия')}",
         f"<b>Компания: </b>{vacancy.organization}",
         ""
     ]
@@ -435,15 +401,6 @@ def format_vacancy(vacancy: Vacancy, show_match: bool = False, user_faculty: str
     if vacancy.description:
         desc = vacancy.description[:150] + "..." if len(vacancy.description) > 150 else vacancy.description
         lines.append(f"\n<blockquote>{desc}</blockquote>")
-
-    if vacancy_url:
-        visible_url = html.escape(vacancy_url)
-        escaped_url = html.escape(vacancy_url, quote=True)
-        lines.extend([
-            "",
-            "<b>Ссылка на вакансию:</b>",
-            f'<a href="{escaped_url}">{visible_url}</a>',
-        ])
 
     text = "\n".join(lines)
     # Особенности (бейджи)
