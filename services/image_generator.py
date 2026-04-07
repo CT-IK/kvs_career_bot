@@ -512,11 +512,21 @@ def ensure_cache_dir() -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def get_render_template_signature() -> str:
+    """Return a cheap fingerprint for the active card template."""
+    if not VACANCY_TEMPLATE_PATH.exists():
+        return f"builtin:{BASE_TEMPLATE_SIZE[0]}x{BASE_TEMPLATE_SIZE[1]}"
+
+    stat = VACANCY_TEMPLATE_PATH.stat()
+    return f"template:{stat.st_size}:{stat.st_mtime_ns}"
+
+
 def build_vacancy_cache_signature(vacancy) -> str:
     """Hash all fields that affect the rendered image."""
     data = build_vacancy_render_data(vacancy)
     normalized_parts = [
         RENDER_SIGNATURE_VERSION,
+        get_render_template_signature(),
         str(data["organization"]).strip(),
         str(data["position"]).strip(),
         str(data["salary"]).strip(),

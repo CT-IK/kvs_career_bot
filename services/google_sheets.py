@@ -797,11 +797,17 @@ async def sync_vacancies_to_db(session: AsyncSession, clear_existing: bool = Tru
         _safe_print("⚠️ Нет вакансий для синхронизации")
         return 0
     
-    # Очищаем существующие вакансии
     if not vacancies_data:
+        if clear_existing:
+            await session.execute(delete(Vacancy))
+            _safe_print("🗑️ Старые вакансии удалены")
         await sync_company_reference_data_from_sheets(session, spreadsheet)
         await session.commit()
-        await sync_vacancy_image_cache()
+        cache_stats = await sync_vacancy_image_cache()
+        _safe_print(
+            "🖼️ Кэш карточек вакансий: "
+            f"generated={cache_stats['generated']}, reused={cache_stats['reused']}, removed={cache_stats['removed']}"
+        )
         return 0
 
     if clear_existing:
@@ -810,11 +816,9 @@ async def sync_vacancies_to_db(session: AsyncSession, clear_existing: bool = Tru
     
     # Добавляем новые
     synced_count = 0
-    created_vacancies = []
     for vac_data in vacancies_data:
         new_vacancy = Vacancy(**vac_data)
         session.add(new_vacancy)
-        created_vacancies.append(new_vacancy)
         synced_count += 1
 
     created_companies, created_divisions = await _sync_companies_and_divisions(session, vacancies_data)
@@ -826,12 +830,16 @@ async def sync_vacancies_to_db(session: AsyncSession, clear_existing: bool = Tru
     ) = await sync_company_reference_data_from_sheets(session, spreadsheet)
     
     await session.commit()
-    await sync_vacancy_image_cache(vacancies=created_vacancies)
+    cache_stats = await sync_vacancy_image_cache()
     
     _safe_print("="*50)
     _safe_print(f"✅ СИНХРОНИЗИРОВАНО: {synced_count} вакансий")
     _safe_print(f"🏢 СОЗДАНО КОМПАНИЙ: {created_companies}")
     _safe_print(f"🏛️ СОЗДАНО ПОДРАЗДЕЛЕНИЙ: {created_divisions}")
+    _safe_print(
+        "🖼️ Кэш карточек вакансий: "
+        f"generated={cache_stats['generated']}, reused={cache_stats['reused']}, removed={cache_stats['removed']}"
+    )
     _safe_print(f"Created companies from Sheets: {sheet_created_companies}")
     _safe_print(f"Updated companies from Sheets: {updated_companies}")
     _safe_print(f"Created divisions from Sheets: {sheet_created_divisions}")
