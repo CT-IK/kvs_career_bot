@@ -40,6 +40,7 @@ class Vacancy(Base):
     schedule = Column(String(100))
     work_format = Column(String(100))
     description = Column(Text)
+    vacancy_url = Column(Text)
     employment_format = Column(String(100))
     feature1 = Column(String(200))
     feature2 = Column(String(200))

@@ -32,6 +32,7 @@ SHEET_HEADERS = [
     "МЭО",
     "ФЭБ",
     "ЮрФак",
+    "Ссылка на вакансию",
 ]
 
 COMPANIES_SHEET_TITLE = "Компании"
@@ -123,6 +124,18 @@ def _ensure_sheet_headers(sheet) -> None:
         sheet.update(values=[SHEET_HEADERS], range_name="A2")
 
 
+def ensure_vacancy_sheet_headers() -> bool:
+    """Ensure the vacancy worksheet contains the latest header set."""
+    spreadsheet = get_google_spreadsheet()
+    if not spreadsheet:
+        _safe_print("⚠️ Не удалось подключиться к Google Sheets для обновления заголовков вакансий")
+        return False
+
+    _ensure_sheet_headers(spreadsheet.sheet1)
+    _safe_print("✅ Заголовки листа вакансий актуализированы")
+    return True
+
+
 def _clear_sheet_data_rows(sheet) -> None:
     """Clear existing vacancy rows without touching header rows."""
     all_values = sheet.get_all_values()
@@ -157,6 +170,7 @@ def _vacancy_row_to_db_payload(vacancy_data: dict[str, str]) -> dict:
         "schedule": vacancy_data.get("График", "").strip(),
         "work_format": vacancy_data.get("Формат", "").strip(),
         "description": vacancy_data.get("Описание", "").strip(),
+        "vacancy_url": vacancy_data.get("Ссылка на вакансию", "").strip(),
         "employment_format": vacancy_data.get("Формат трудоустройства", "").strip(),
         "feature1": vacancy_data.get("Особенность 1", "").strip(),
         "feature2": vacancy_data.get("Особенность 2", "").strip(),
@@ -196,6 +210,7 @@ def _vacancy_to_sheet_row(vacancy: Vacancy) -> list[str]:
         _bool_to_sheet_value(vacancy.meo),
         _bool_to_sheet_value(vacancy.feb),
         _bool_to_sheet_value(vacancy.yurfak),
+        vacancy.vacancy_url or "",
     ]
 
 
@@ -890,6 +905,11 @@ async def sync_vacancies_to_sheet(session: AsyncSession, clear_existing: bool = 
 
 async def ensure_vacancies_seeded(session: AsyncSession) -> int:
     """Load vacancies from Google Sheets once when the database is empty."""
+    try:
+        ensure_vacancy_sheet_headers()
+    except Exception as exc:
+        _safe_print(f"⚠️ Не удалось обновить заголовки листа вакансий: {exc}")
+
     existing_count = (await session.execute(select(func.count(Vacancy.id)))).scalar() or 0
     if existing_count > 0:
         _safe_print(f"ℹ️ Вакансии уже загружены: {existing_count}")

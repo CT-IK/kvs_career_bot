@@ -193,6 +193,7 @@ def generate_vacancy() -> Dict[str, str]:
         "МЭО": "Да" if "МЭО" in suitable_faculties else "Нет",
         "ФЭБ": "Да" if "ФЭБ" in suitable_faculties else "Нет",
         "Юрфак": "Да" if "Юрфак" in suitable_faculties else "Нет",
+        "Ссылка на вакансию": "",
     }
     
     return vacancy_data
@@ -219,7 +220,8 @@ def get_headers():
         "СНиМК",
         "МЭО",
         "ФЭБ",
-        "Юрфак"
+        "Юрфак",
+        "Ссылка на вакансию",
     ]
 
 
@@ -257,7 +259,7 @@ def write_to_google_sheets(vacancies: List[Dict], clear_existing: bool = False):
             spreadsheet = client.open_by_url(GOOGLE_SHEETS_URL)
         elif GOOGLE_SHEET_NAME:
             print(f"📎 Открываю по имени: {GOOGLE_SHEET_NAME}")
-        spreadsheet = client.open(GOOGLE_SHEET_NAME)
+            spreadsheet = client.open(GOOGLE_SHEET_NAME)
         else:
             print("❌ Не указаны GOOGLE_SHEETS_URL или GOOGLE_SHEET_NAME в .env")
             return False
@@ -269,7 +271,7 @@ def write_to_google_sheets(vacancies: List[Dict], clear_existing: bool = False):
         
         # Проверяем и добавляем заголовки во 2-ю строку
         existing_headers = sheet.row_values(2)
-        if not existing_headers or existing_headers[0] != headers[0]:
+        if existing_headers[:len(headers)] != headers:
             print("📝 Добавляю заголовки во 2-ю строку...")
             sheet.update(values=[headers], range_name='A2')
         
@@ -281,7 +283,7 @@ def write_to_google_sheets(vacancies: List[Dict], clear_existing: bool = False):
             if len(all_values) > 2:
                 # Очищаем диапазон данных (не удаляем строки, а очищаем содержимое)
                 end_row = len(all_values)
-                sheet.batch_clear([f'A3:S{end_row}'])
+                sheet.batch_clear([f'A3:T{end_row}'])
         
         start_row = 3
         print(f"📍 Запись начнётся со строки {start_row}")
@@ -308,13 +310,14 @@ def write_to_google_sheets(vacancies: List[Dict], clear_existing: bool = False):
                 vacancy["СНиМК"],
                 vacancy["МЭО"],
                 vacancy["ФЭБ"],
-                vacancy["Юрфак"]
+                vacancy["Юрфак"],
+                vacancy["Ссылка на вакансию"],
             ]
             rows_to_write.append(row)
         
         # Записываем данные начиная с нужной строки
         end_row = start_row + len(rows_to_write) - 1
-        range_name = f'A{start_row}:S{end_row}'
+        range_name = f'A{start_row}:T{end_row}'
         print(f"📝 Записываю {len(rows_to_write)} строк в диапазон {range_name}...")
         
         # Используем batch_update для надёжности

@@ -330,10 +330,17 @@ async def get_company_vacancies_count(session, company_name: str | None, divisio
 def format_vacancy_caption(vacancy: Vacancy) -> str:
     """Форматирование вакансии для caption под картинкой (до 1024 символов)"""
 
-    
+    vacancy_url = (getattr(vacancy, "vacancy_url", "") or "").strip()
+    title = html.escape(vacancy.position or "Вакансия")
+    title_html = (
+        f'<a href="{html.escape(vacancy_url, quote=True)}">{title}</a>'
+        if vacancy_url
+        else title
+    )
+
     # Компактный формат для caption
     lines = [
-        f"💼 <b>Вакансия: </b>{vacancy.position}",
+        f"💼 <b>Вакансия: </b>{title_html}",
         f"<b>Компания: </b>{vacancy.organization}",
         ""
     ]
@@ -354,6 +361,15 @@ def format_vacancy_caption(vacancy: Vacancy) -> str:
     if vacancy.description:
         desc = vacancy.description[:150] + "..." if len(vacancy.description) > 150 else vacancy.description
         lines.append(f"\n<blockquote>{desc}</blockquote>")
+
+    if vacancy_url:
+        visible_url = html.escape(vacancy_url)
+        escaped_url = html.escape(vacancy_url, quote=True)
+        lines.extend([
+            "",
+            "<b>Ссылка на вакансию:</b>",
+            f'<a href="{escaped_url}">{visible_url}</a>',
+        ])
     
     text = "\n".join(lines)
     
@@ -367,8 +383,15 @@ def format_vacancy_caption(vacancy: Vacancy) -> str:
 def format_vacancy(vacancy: Vacancy, show_match: bool = False, user_faculty: str = None) -> str:
     """Форматирование вакансии для текстового отображения (используется в меню без картинок)"""
     # Определяем эмодзи для сферы
+    vacancy_url = (getattr(vacancy, "vacancy_url", "") or "").strip()
+    title = html.escape(vacancy.position or "Вакансия")
+    title_html = (
+        f'<a href="{html.escape(vacancy_url, quote=True)}">{title}</a>'
+        if vacancy_url
+        else title
+    )
     lines = [
-        f"💼 <b>Вакансия: </b>{vacancy.position}",
+        f"💼 <b>Вакансия: </b>{title_html}",
         f"<b>Компания: </b>{vacancy.organization}",
         ""
     ]
@@ -389,6 +412,15 @@ def format_vacancy(vacancy: Vacancy, show_match: bool = False, user_faculty: str
     if vacancy.description:
         desc = vacancy.description[:150] + "..." if len(vacancy.description) > 150 else vacancy.description
         lines.append(f"\n<blockquote>{desc}</blockquote>")
+
+    if vacancy_url:
+        visible_url = html.escape(vacancy_url)
+        escaped_url = html.escape(vacancy_url, quote=True)
+        lines.extend([
+            "",
+            "<b>Ссылка на вакансию:</b>",
+            f'<a href="{escaped_url}">{visible_url}</a>',
+        ])
 
     text = "\n".join(lines)
     # Особенности (бейджи)
@@ -1913,8 +1945,21 @@ async def callback_about_company(callback: CallbackQuery):
             return
         
         # Формируем текст
-        text = f"<b>{vacancy.organization}</b>\n\n"
+        vacancy_url = (getattr(vacancy, "vacancy_url", "") or "").strip()
+        vacancy_title = html.escape(vacancy.position or "Вакансия")
+        vacancy_title_html = (
+            f'<a href="{html.escape(vacancy_url, quote=True)}">{vacancy_title}</a>'
+            if vacancy_url
+            else f"<b>{vacancy_title}</b>"
+        )
+
+        text = f"<b>{html.escape(vacancy.organization or 'Компания')}</b>\n\n"
+        text += f"💼 {vacancy_title_html}\n\n"
         text += f"{company.description}"
+        if vacancy_url:
+            visible_url = html.escape(vacancy_url)
+            escaped_url = html.escape(vacancy_url, quote=True)
+            text += f"\n\n<b>Ссылка на вакансию:</b>\n<a href=\"{escaped_url}\">{visible_url}</a>"
         
         # Удаляем фото и показываем текст
         await callback.message.delete()

@@ -33,6 +33,7 @@ async def init_db():
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(64)"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE"))
             await conn.execute(text("ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS ioo BOOLEAN DEFAULT FALSE"))
+            await conn.execute(text("ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS vacancy_url TEXT"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_username_lower ON users (LOWER(username))"))
         _safe_print("✅ Таблицы базы данных успешно созданы/проверены")
         
