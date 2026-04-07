@@ -330,6 +330,14 @@ async def get_company_vacancies_count(session, company_name: str | None, divisio
 def format_vacancy_caption(vacancy: Vacancy) -> str:
     """Форматирование вакансии для caption под картинкой (до 1024 символов)"""
 
+    def _truncate_plain_text(value: str | None, limit: int) -> str:
+        text_value = (value or "").strip()
+        if not text_value or limit <= 0:
+            return ""
+        if len(text_value) <= limit:
+            return text_value
+        return text_value[: max(limit - 3, 0)].rstrip() + "..."
+
     vacancy_url = (getattr(vacancy, "vacancy_url", "") or "").strip()
     title = html.escape(vacancy.position or "Вакансия")
     title_html = (
@@ -356,28 +364,43 @@ def format_vacancy_caption(vacancy: Vacancy) -> str:
         lines.append(f"<b>Формат: </b>{vacancy.work_format}")
     if vacancy.employment_format:
         lines.append(f"<b>Тип занятости: </b>{vacancy.employment_format}")
-    
-    # Описание (краткое)
-    if vacancy.description:
-        desc = vacancy.description[:150] + "..." if len(vacancy.description) > 150 else vacancy.description
-        lines.append(f"\n<blockquote>{desc}</blockquote>")
 
     if vacancy_url:
-        visible_url = html.escape(vacancy_url)
+        visible_url = html.escape(_truncate_plain_text(vacancy_url, 90))
         escaped_url = html.escape(vacancy_url, quote=True)
         lines.extend([
             "",
             "<b>Ссылка на вакансию:</b>",
             f'<a href="{escaped_url}">{visible_url}</a>',
         ])
-    
+
+    base_text = "\n".join(lines)
+    description_limit = 150
+    if vacancy.description:
+        remaining = max(0, 980 - len(base_text))
+        description_limit = min(description_limit, remaining)
+        description = _truncate_plain_text(vacancy.description, description_limit)
+        if description:
+            lines.append(f"\n<blockquote>{html.escape(description)}</blockquote>")
+
     text = "\n".join(lines)
-    
-    # Обрезаем если слишком длинный (лимит Telegram 1024)
-    if len(text) > 1000:
-        text = text[:997] + "..."
-    
-    return text
+    if len(text) <= 1000:
+        return text
+
+    if len(base_text) <= 1000:
+        return base_text
+
+    fallback_lines = [
+        f"💼 <b>Вакансия: </b>{html.escape(_truncate_plain_text(vacancy.position, 120))}",
+        f"<b>Компания: </b>{html.escape(_truncate_plain_text(vacancy.organization, 120))}",
+    ]
+    if vacancy_url:
+        fallback_lines.extend([
+            "",
+            "<b>Ссылка на вакансию:</b>",
+            html.escape(_truncate_plain_text(vacancy_url, 300)),
+        ])
+    return "\n".join(fallback_lines)
 
 
 def format_vacancy(vacancy: Vacancy, show_match: bool = False, user_faculty: str = None) -> str:
