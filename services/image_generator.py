@@ -11,6 +11,14 @@ from pathlib import Path
 from typing import Iterable
 
 from PIL import Image, ImageDraw, ImageFont
+from services.vacancy_defaults import (
+    DEFAULT_DESCRIPTION,
+    DEFAULT_SALARY,
+    DEFAULT_SCHEDULE,
+    DEFAULT_SPHERE,
+    present_features,
+    present_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +27,7 @@ IMAGES_DIR = ASSETS_DIR / "images"
 FONTS_DIR = ASSETS_DIR / "fonts"
 BASE_TEMPLATE_SIZE = (1280, 1280)
 VACANCY_TEMPLATE_PATH = IMAGES_DIR / "vacancy_card.png"
-RENDER_SIGNATURE_VERSION = "4"
+RENDER_SIGNATURE_VERSION = "5"
 
 
 def get_cache_dir() -> Path:
@@ -248,24 +256,20 @@ def wrap_text(
 
 def build_vacancy_render_data(vacancy) -> dict:
     """Collect all SQL-backed fields that are rendered into the card."""
-    features = [
-        feature
-        for feature in (
-            getattr(vacancy, "feature1", ""),
-            getattr(vacancy, "feature2", ""),
-            getattr(vacancy, "feature3", ""),
-        )
-        if feature
-    ]
+    features = present_features(
+        getattr(vacancy, "feature1", ""),
+        getattr(vacancy, "feature2", ""),
+        getattr(vacancy, "feature3", ""),
+    )
 
     return {
         "organization": getattr(vacancy, "organization", "") or "Компания",
         "position": getattr(vacancy, "position", "") or "Вакансия",
-        "salary": format_salary_text(getattr(vacancy, "salary", "") or ""),
-        "schedule": getattr(vacancy, "schedule", "") or "",
+        "salary": format_salary_text(present_value(getattr(vacancy, "salary", ""), DEFAULT_SALARY)),
+        "schedule": present_value(getattr(vacancy, "schedule", ""), DEFAULT_SCHEDULE),
         "work_format": getattr(vacancy, "work_format", "") or "",
-        "sphere": getattr(vacancy, "sphere", "") or "",
-        "description": getattr(vacancy, "description", "") or "",
+        "sphere": present_value(getattr(vacancy, "sphere", ""), DEFAULT_SPHERE),
+        "description": present_value(getattr(vacancy, "description", ""), DEFAULT_DESCRIPTION),
         "features": features,
     }
 
