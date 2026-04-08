@@ -360,11 +360,11 @@ def format_vacancy_caption(vacancy: Vacancy) -> str:
         f"💼 <b>Вакансия: </b>{title_html}",
         f"<b>Компания: </b>{html.escape(vacancy.organization or 'Компания')}",
         "",
-        f"<b>РЎС„РµСЂР°: </b>{html.escape(sphere)}",
-        f"<b>Р—Р°СЂРїР»Р°С‚Р°: </b>{html.escape(salary)}",
-        f"<b>Р“СЂР°С„РёРє: </b>{html.escape(schedule)}",
-        f"<b>Р¤РѕСЂРјР°С‚: </b>{html.escape(work_format)}",
-        f"<b>РўРёРї Р·Р°РЅСЏС‚РѕСЃС‚Рё: </b>{html.escape(employment_format)}",
+        f"<b>Сфера: </b>{html.escape(sphere)}",
+        f"<b>Зарплата: </b>{html.escape(salary)}",
+        f"<b>График: </b>{html.escape(schedule)}",
+        f"<b>Формат: </b>{html.escape(work_format)}",
+        f"<b>Тип занятости: </b>{html.escape(employment_format)}",
     ]
 
     link_lines: list[str] = []
@@ -428,11 +428,11 @@ def format_vacancy(vacancy: Vacancy, show_match: bool = False, user_faculty: str
         f"💼 <b>Вакансия: </b>{title_html}",
         f"<b>Компания: </b>{html.escape(vacancy.organization or 'Компания')}",
         "",
-        f"<b>РЎС„РµСЂР°: </b>{html.escape(sphere)}",
-        f"<b>Р—Р°СЂРїР»Р°С‚Р°: </b>{html.escape(salary)}",
-        f"<b>Р“СЂР°С„РёРє: </b>{html.escape(schedule)}",
-        f"<b>Р¤РѕСЂРјР°С‚: </b>{html.escape(work_format)}",
-        f"<b>РўРёРї Р·Р°РЅСЏС‚РѕСЃС‚Рё: </b>{html.escape(employment_format)}"
+        f"<b>Сфера: </b>{html.escape(sphere)}",
+        f"<b>Зарплата: </b>{html.escape(salary)}",
+        f"<b>График: </b>{html.escape(schedule)}",
+        f"<b>Формат: </b>{html.escape(work_format)}",
+        f"<b>Тип занятости: </b>{html.escape(employment_format)}"
     ]
 
     if description_value:
