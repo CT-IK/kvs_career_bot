@@ -37,6 +37,12 @@ services:
       GOOGLE_SHEETS_URL: ${GOOGLE_SHEETS_URL:-}
       GOOGLE_CREDENTIALS_FILE: ${GOOGLE_CREDENTIALS_FILE:-credentials.json}
       GOOGLE_SHEET_NAME: ${GOOGLE_SHEET_NAME:-}
+      MINIAPP_ENABLED: ${MINIAPP_ENABLED:-true}
+      MINIAPP_HOST: 0.0.0.0
+      MINIAPP_PORT: ${MINIAPP_PORT:-8000}
+      MINIAPP_PUBLIC_URL: ${MINIAPP_PUBLIC_URL:-http://localhost:8000/miniapp}
+    ports:
+      - "${MINIAPP_PORT:-8000}:${MINIAPP_PORT:-8000}"
     volumes:
       - ./.env:/app/.env:ro
       - ./credentials.json:/app/credentials.json:ro

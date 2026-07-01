@@ -319,6 +319,23 @@ async def cmd_admin(message: Message, state: FSMContext) -> None:
     await message.answer(await get_stats_text(), parse_mode="HTML", reply_markup=get_admin_keyboard())
 
 
+@router.callback_query(F.data == "admin_panel")
+async def callback_admin_panel(callback: CallbackQuery, state: FSMContext) -> None:
+    if not await is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    await state.clear()
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+
+    await callback.message.answer("Админ-режим", reply_markup=ReplyKeyboardRemove())
+    await callback.message.answer(await get_stats_text(), parse_mode="HTML", reply_markup=get_admin_keyboard())
+    await callback.answer()
+
+
 @router.callback_query(F.data == "admin_stats")
 async def callback_admin_stats(callback: CallbackQuery, state: FSMContext) -> None:
     if not await is_admin(callback.from_user.id):

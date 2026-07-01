@@ -1,0 +1,225 @@
+from __future__ import annotations
+
+import hashlib
+import os
+import time
+from pathlib import Path
+from typing import Any
+
+import gspread
+from dotenv import load_dotenv
+from google.oauth2.service_account import Credentials
+
+PROJECT_DIR = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_DIR / ".env")
+load_dotenv()
+
+SHEET_CACHE_TTL_SECONDS = max(15, int(os.getenv("MINIAPP_SHEET_CACHE_TTL_SECONDS", "300")))
+
+HEADER_ALIASES = {
+    "organization": ("Организация",),
+    "division": ("Подразделение",),
+    "position": ("Вакансия",),
+    "sphere": ("Сфера",),
+    "salary": ("ЗП",),
+    "schedule": ("График",),
+    "work_format": ("Формат",),
+    "description": ("Описание",),
+    "employment_format": ("Формат трудоустройства",),
+    "feature1": ("Особенность 1",),
+    "feature2": ("Особенность 2",),
+    "feature3": ("Особенность 3",),
+    "vacancy_url": ("Ссылка на вакансию",),
+}
+
+BRAND_COLORS = ["#21A33B", "#159DD8", "#F40909", "#EC1C24", "#6266FF", "#C40016", "#009F62"]
+METRO_COLORS = ["#D0183D", "#1268B3", "#159B55", "#EC7D00", "#7B61FF", "#C40016"]
+
+_cache: dict[str, Any] = {"expires_at": 0.0, "items": None, "loaded_at": None}
+
+
+class VacancySheetError(RuntimeError):
+    """Raised when Google Sheets cannot be read for the miniapp."""
+
+
+def _resolve_credentials_path() -> Path:
+    raw_path = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json").strip() or "credentials.json"
+    path = Path(raw_path)
+    if path.is_absolute():
+        return path
+
+    project_path = PROJECT_DIR / path
+    if project_path.exists():
+        return project_path
+
+    return Path.cwd() / path
+
+
+def _get_spreadsheet():
+    credentials_path = _resolve_credentials_path()
+    if not credentials_path.exists():
+        raise VacancySheetError(f"Google credentials file not found: {credentials_path}")
+
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
+    ]
+    credentials = Credentials.from_service_account_file(credentials_path, scopes=scopes)
+    client = gspread.authorize(credentials)
+
+    spreadsheet_url = os.getenv("GOOGLE_SHEETS_URL", "").strip()
+    spreadsheet_name = os.getenv("GOOGLE_SHEET_NAME", "").strip()
+    if spreadsheet_url:
+        return client.open_by_url(spreadsheet_url)
+    if spreadsheet_name:
+        return client.open(spreadsheet_name)
+    raise VacancySheetError("GOOGLE_SHEETS_URL or GOOGLE_SHEET_NAME must be configured")
+
+
+def _get_value(row: dict[str, str], key: str) -> str:
+    for header in HEADER_ALIASES[key]:
+        value = row.get(header)
+        if value is not None:
+            return str(value).strip()
+    return ""
+
+
+def _stable_index(value: str, modulo: int) -> int:
+    digest = hashlib.sha1(value.encode("utf-8")).hexdigest()
+    return int(digest[:8], 16) % modulo
+
+
+def _brand_color(company: str) -> str:
+    return BRAND_COLORS[_stable_index(company or "KVS", len(BRAND_COLORS))]
+
+
+def _metro_color(value: str) -> str:
+    return METRO_COLORS[_stable_index(value or "default", len(METRO_COLORS))]
+
+
+def _kind(value: str) -> str:
+    normalized = value.casefold()
+    if "стаж" in normalized:
+        return "Стажировка"
+    if "вак" in normalized:
+        return "Вакансия"
+    return value or "Вакансия"
+
+
+def _features(*values: str) -> list[str]:
+    return [value for value in values if value]
+
+
+def _to_frontend_vacancy(row: dict[str, str], row_number: int) -> dict[str, Any] | None:
+    organization = _get_value(row, "organization")
+    title = _get_value(row, "position")
+    if not organization or not title:
+        return None
+
+    division = _get_value(row, "division")
+    sphere = _get_value(row, "sphere") or "Другое"
+    salary = _get_value(row, "salary") or "По договорённости"
+    schedule = _get_value(row, "schedule")
+    work_format = _get_value(row, "work_format") or "Гибрид"
+    employment_format = _kind(_get_value(row, "employment_format"))
+    description = _get_value(row, "description") or "Описание появится позже."
+    features = _features(_get_value(row, "feature1"), _get_value(row, "feature2"), _get_value(row, "feature3"))
+    vacancy_url = _get_value(row, "vacancy_url")
+
+    return {
+        "id": f"sheet-{row_number}",
+        "sourceRow": row_number,
+        "company": {
+            "id": f"company-{_stable_index(organization, 100000)}",
+            "name": organization,
+            "initial": organization[:1].upper() or "K",
+            "brandColor": _brand_color(organization),
+            "verified": True,
+        },
+        "division": division,
+        "title": title,
+        "salary": salary,
+        "metro": division or schedule or "Уточняется",
+        "metroColor": _metro_color(division or schedule or organization),
+        "format": work_format,
+        "kind": employment_format,
+        "category": sphere,
+        "experience": features[0] if features else "Без опыта",
+        "description": description,
+        "fullDescription": description,
+        "requirements": features or ["Требования уточняются у работодателя"],
+        "offer": [value for value in [salary, schedule, work_format, employment_format] if value],
+        "applyUrl": vacancy_url,
+    }
+
+
+def _rows_from_sheet() -> list[dict[str, str]]:
+    spreadsheet = _get_spreadsheet()
+    sheet = spreadsheet.sheet1
+    values = sheet.get_all_values()
+    if len(values) < 3:
+        return []
+
+    headers = [header.strip() for header in values[1]]
+    rows: list[dict[str, str]] = []
+    for row_index, raw_row in enumerate(values[2:], start=3):
+        mapped = {
+            header: raw_row[index].strip() if index < len(raw_row) else ""
+            for index, header in enumerate(headers)
+            if header
+        }
+        mapped["_row_number"] = str(row_index)
+        rows.append(mapped)
+    return rows
+
+
+def load_vacancies_from_google_sheet(force_refresh: bool = False) -> tuple[list[dict[str, Any]], str | None]:
+    now = time.monotonic()
+    if not force_refresh and _cache["items"] is not None and now < _cache["expires_at"]:
+        return list(_cache["items"]), _cache["loaded_at"]
+
+    items = []
+    for row in _rows_from_sheet():
+        item = _to_frontend_vacancy(row, int(row["_row_number"]))
+        if item:
+            items.append(item)
+
+    loaded_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    _cache.update({
+        "items": items,
+        "loaded_at": loaded_at,
+        "expires_at": now + SHEET_CACHE_TTL_SECONDS,
+    })
+    return list(items), loaded_at
+
+
+def filter_vacancies(items: list[dict[str, Any]], query: str = "", category: str = "Все") -> list[dict[str, Any]]:
+    normalized_query = query.strip().casefold()
+    normalized_category = category.strip()
+
+    def matches(item: dict[str, Any]) -> bool:
+        if normalized_category and normalized_category != "Все" and item["category"] != normalized_category:
+            return False
+        if not normalized_query:
+            return True
+        haystack = " ".join(
+            str(value)
+            for value in [
+                item["title"],
+                item["company"]["name"],
+                item.get("division", ""),
+                item["salary"],
+                item["format"],
+                item["kind"],
+                item["category"],
+                item["description"],
+            ]
+        ).casefold()
+        return normalized_query in haystack
+
+    return [item for item in items if matches(item)]
+
+
+def build_categories(items: list[dict[str, Any]]) -> list[str]:
+    categories = sorted({item["category"] for item in items if item.get("category")})
+    return ["Все", *categories]

@@ -8,6 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ErrorEvent
 
 from config import AUTO_RESTART_DELAY_SECONDS, AUTO_RESTART_ENABLED, BOT_TOKEN
+from config import MINIAPP_ENABLED, MINIAPP_HOST, MINIAPP_PORT
 from database.db import async_session_maker, init_db
 from handlers import admin, registration, subscription, vacancies
 from middleware.activity import ActivityMiddleware
@@ -18,7 +19,9 @@ from services.vacancy_scheduler import run_daily_vacancy_sync_scheduler
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format="%"
+           ""
+           "(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,20 @@ class FatalStartupError(RuntimeError):
     """Raised when the bot cannot recover without config changes."""
 
 
+
+async def run_miniapp_server():
+    """Run the KVS Job miniapp web server inside the bot process."""
+    import uvicorn
+
+    config = uvicorn.Config(
+        "miniapp.app:app",
+        host=MINIAPP_HOST,
+        port=MINIAPP_PORT,
+        log_level="info",
+        lifespan="on",
+    )
+    server = uvicorn.Server(config)
+    await server.serve()
 async def run_bot_once():
     """Run a single bot lifecycle until shutdown or crash."""
     if not BOT_TOKEN:
@@ -51,10 +68,18 @@ async def run_bot_once():
     except Exception as exc:
         logger.warning("Image pregeneration failed: %s", exc)
 
+    background_tasks = []
     vacancy_sync_task = asyncio.create_task(
         run_daily_vacancy_sync_scheduler(),
         name="daily-vacancy-sync",
     )
+    background_tasks.append(vacancy_sync_task)
+
+    if MINIAPP_ENABLED:
+        logger.info("Starting KVS Job miniapp server on %s:%s", MINIAPP_HOST, MINIAPP_PORT)
+        background_tasks.append(
+            asyncio.create_task(run_miniapp_server(), name="kvs-job-miniapp-server")
+        )
 
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
@@ -84,9 +109,11 @@ async def run_bot_once():
     try:
         await dp.start_polling(bot, skip_updates=True)
     finally:
-        vacancy_sync_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await vacancy_sync_task
+        for task in background_tasks:
+            task.cancel()
+        for task in background_tasks:
+            with suppress(asyncio.CancelledError):
+                await task
         await bot.session.close()
 
 

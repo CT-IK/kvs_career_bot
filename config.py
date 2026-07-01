@@ -67,6 +67,11 @@ VACANCY_SYNC_SCHEDULE_ENABLED = _env_bool("VACANCY_SYNC_SCHEDULE_ENABLED", defau
 VACANCY_SYNC_HOUR = min(23, max(0, _env_int("VACANCY_SYNC_HOUR", default=5)))
 VACANCY_SYNC_MINUTE = min(59, max(0, _env_int("VACANCY_SYNC_MINUTE", default=30)))
 VACANCY_SYNC_TIMEZONE = os.getenv("VACANCY_SYNC_TIMEZONE", "Europe/Moscow").strip() or "Europe/Moscow"
+# KVS Job miniapp
+MINIAPP_ENABLED = _env_bool("MINIAPP_ENABLED", default=True)
+MINIAPP_HOST = os.getenv("MINIAPP_HOST", "0.0.0.0").strip() or "0.0.0.0"
+MINIAPP_PORT = max(1, min(65535, _env_int("MINIAPP_PORT", default=8000)))
+MINIAPP_PUBLIC_URL = os.getenv("MINIAPP_PUBLIC_URL", "http://localhost:8000/miniapp").strip()
 
 # Факультеты
 FACULTIES = {

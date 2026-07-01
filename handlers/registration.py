@@ -1,5 +1,6 @@
 import html
 import logging
+import re
 from pathlib import Path
 
 from aiogram import Router, F
@@ -18,12 +19,15 @@ from services.course_utils import COURSE_LEVELS, format_course_label, parse_cour
 from services.user_names import validate_name_part
 
 router = Router()
-REGISTRATION_TOTAL_STEPS = 6
+REGISTRATION_TOTAL_STEPS = 7
 logger = logging.getLogger(__name__)
 CONGRATULATION_GIF_PATH = Path(__file__).parent.parent / "assets" / "congratulation" / "pug.gif"
 PRIVACY_POLICY_URL = "https://docs.google.com/document/d/1oHQcLz6OMFWezlRRNkx1HHEkNfH__JBaA5FOdKa4o5k/edit?tab=t.0#heading=h.ydfzj89gl84q"
 PERSONAL_DATA_CONSENT_URL = "https://docs.google.com/document/d/1PXvgwN2rzhsJ-VTgnj9hQxl4b58kOd7d6cRLvfQQL6U/edit?usp=sharing"
 NO_FACULTY_LABEL = "Нет моего направления"
+ALLOWED_EMAIL_DOMAIN = "edu.fa.ru"
+ADMIN_EMAIL = "253103@edu.fa.ru"
+EMAIL_RE = re.compile(r"^[A-Z0-9._%+-]+@edu\.fa\.ru$", re.IGNORECASE)
 
 
 class RegistrationStates(StatesGroup):
@@ -31,9 +35,32 @@ class RegistrationStates(StatesGroup):
     waiting_for_first_name = State()
     waiting_for_last_name = State()
     waiting_for_patronymic = State()
+    waiting_for_email = State()
     waiting_for_course = State()
     waiting_for_faculty = State()
     waiting_for_info_source = State()
+
+
+def normalize_email(value: str | None) -> str:
+    return (value or "").strip().casefold()
+
+
+def validate_email(value: str | None) -> tuple[bool, str, str]:
+    email = normalize_email(value)
+    if not email:
+        return False, "", "❌ Введи почту."
+    if not EMAIL_RE.fullmatch(email):
+        return (
+            False,
+            "",
+            f"❌ Почта должна быть в домене <b>{ALLOWED_EMAIL_DOMAIN}</b>.\n"
+            "Например: <code>name@edu.fa.ru</code>",
+        )
+    return True, email, ""
+
+
+def is_admin_email(email: str | None) -> bool:
+    return normalize_email(email) == ADMIN_EMAIL
 
 
 def get_step_text(step: int, total: int, title: str, question: str) -> str:
@@ -90,6 +117,19 @@ async def prompt_first_name(target: Message, state: FSMContext):
     )
 
     await state.set_state(RegistrationStates.waiting_for_first_name)
+
+
+async def prompt_existing_user_email(target: Message, state: FSMContext):
+    await state.update_data(email_only=True)
+    await target.answer(
+        """
+❤️ <b>Комитет Внешних Связей</b> 🖤
+
+Для продолжения укажи свою почту в домене <b>edu.fa.ru</b>.
+""".strip(),
+        parse_mode="HTML",
+    )
+    await state.set_state(RegistrationStates.waiting_for_email)
 
 
 def get_course_keyboard():
@@ -236,6 +276,68 @@ async def process_patronymic(message: Message, state: FSMContext):
             step=4,
             total=REGISTRATION_TOTAL_STEPS,
             title="Отлично, продолжаем",
+            question="Введи свою почту в домене edu.fa.ru",
+        ),
+        parse_mode="HTML",
+    )
+    await state.set_state(RegistrationStates.waiting_for_email)
+
+
+@router.message(RegistrationStates.waiting_for_email)
+async def process_email(message: Message, state: FSMContext):
+    """Обработка корпоративной почты."""
+    if message.text and message.text.startswith('/'):
+        await state.clear()
+        return
+
+    is_valid, email, error_text = validate_email(message.text)
+    if not is_valid:
+        await message.answer(error_text, parse_mode="HTML")
+        return
+
+    data = await state.get_data()
+    if data.get("email_only"):
+        should_open_admin = is_admin_email(email)
+        async with async_session_maker() as session:
+            from sqlalchemy import select
+
+            result = await session.execute(
+                select(User).where(User.telegram_id == message.from_user.id)
+            )
+            user = result.scalar_one_or_none()
+            if user:
+                user.email = email
+                if should_open_admin:
+                    user.is_admin = True
+                user.last_activity = datetime.utcnow()
+                await session.commit()
+
+        await state.clear()
+        if should_open_admin:
+            from handlers.admin import get_admin_keyboard, get_stats_text
+
+            await message.answer(
+                "Админ-доступ активирован по корпоративной почте.",
+                parse_mode="HTML",
+            )
+            await message.answer(
+                await get_stats_text(),
+                parse_mode="HTML",
+                reply_markup=get_admin_keyboard(),
+            )
+            return
+
+        from handlers.vacancies import show_main_menu_or_registration
+
+        await show_main_menu_or_registration(message, state, message.from_user.id)
+        return
+
+    await state.update_data(email=email)
+    await message.answer(
+        get_step_text(
+            step=5,
+            total=REGISTRATION_TOTAL_STEPS,
+            title="Почта сохранена",
             question="Выбери свой курс",
         ),
         parse_mode="HTML",
@@ -252,7 +354,7 @@ async def process_course_callback(callback: CallbackQuery, state: FSMContext):
     
     await callback.message.edit_text(
         get_step_text(
-            step=5,
+            step=6,
             total=REGISTRATION_TOTAL_STEPS,
             title=f"Курс: {format_course_label(course)}",
             question="Выбери свой факультет",
@@ -272,7 +374,7 @@ async def process_faculty_callback(callback: CallbackQuery, state: FSMContext):
     
     await callback.message.edit_text(
         get_step_text(
-            step=6,
+            step=7,
             total=REGISTRATION_TOTAL_STEPS,
             title=f"Факультет: {html.escape(faculty)}",
             question="Откуда ты узнал о проекте?",
@@ -289,6 +391,22 @@ async def process_info_source_callback(callback: CallbackQuery, state: FSMContex
     """Обработка выбора источника информации и завершение регистрации"""
     info_source = callback.data.replace("reg_source_", "")
     data = await state.get_data()
+    email = data.get("email")
+    if not email:
+        await callback.answer("Сначала укажи почту", show_alert=True)
+        await callback.message.answer(
+            get_step_text(
+                step=4,
+                total=REGISTRATION_TOTAL_STEPS,
+                title="Нужна корпоративная почта",
+                question="Введи свою почту в домене edu.fa.ru",
+            ),
+            parse_mode="HTML",
+        )
+        await state.set_state(RegistrationStates.waiting_for_email)
+        return
+
+    should_open_admin = is_admin_email(email)
     
     # Сохраняем пользователя в БД
     async with async_session_maker() as session:
@@ -303,9 +421,12 @@ async def process_info_source_callback(callback: CallbackQuery, state: FSMContex
             user.first_name = data["first_name"]
             user.last_name = data["last_name"]
             user.patronymic = data.get("patronymic")
+            user.email = email
             user.course = data["course"]
             user.faculty = data["faculty"]
             user.info_source = info_source
+            if should_open_admin:
+                user.is_admin = True
             user.is_registered = True
             user.registered_at = datetime.utcnow()
             user.last_activity = datetime.utcnow()
@@ -316,9 +437,11 @@ async def process_info_source_callback(callback: CallbackQuery, state: FSMContex
                 first_name=data["first_name"],
                 last_name=data["last_name"],
                 patronymic=data.get("patronymic"),
+                email=email,
                 course=data["course"],
                 faculty=data["faculty"],
                 info_source=info_source,
+                is_admin=should_open_admin,
                 is_registered=True,
                 registered_at=datetime.utcnow(),
                 last_activity=datetime.utcnow()
@@ -327,10 +450,7 @@ async def process_info_source_callback(callback: CallbackQuery, state: FSMContex
         
         await session.commit()
     
-    # Получаем количество вакансий для нового пользователя
-    from handlers.vacancies import get_user_vacancies_count, show_main_menu_or_registration
-    async with async_session_maker() as session:
-        vacancies_count = await get_user_vacancies_count(session, data["faculty"])
+    from handlers.vacancies import show_main_menu_or_registration
     
     success_text = f"""
 ✅ <b>Регистрация завершена!</b>
@@ -371,6 +491,20 @@ async def process_info_source_callback(callback: CallbackQuery, state: FSMContex
             )
 
     await state.clear()
+    if should_open_admin:
+        from handlers.admin import get_admin_keyboard, get_stats_text
+
+        await callback.message.answer(
+            "Админ-доступ активирован по корпоративной почте.",
+            parse_mode="HTML",
+        )
+        await callback.message.answer(
+            await get_stats_text(),
+            parse_mode="HTML",
+            reply_markup=get_admin_keyboard(),
+        )
+        return
+
     await show_main_menu_or_registration(callback.message, state, callback.from_user.id)
 
 
@@ -402,7 +536,7 @@ async def process_course_text(message: Message, state: FSMContext):
     await state.update_data(course=course)
     await message.answer(
         get_step_text(
-            step=5,
+            step=6,
             total=REGISTRATION_TOTAL_STEPS,
             title=f"Курс: {format_course_label(course)}",
             question="Выбери свой факультет",

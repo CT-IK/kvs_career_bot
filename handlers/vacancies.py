@@ -2,7 +2,7 @@ import html
 
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto, FSInputFile, BufferedInputFile
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto, FSInputFile, BufferedInputFile, WebAppInfo
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select, func, distinct
@@ -10,7 +10,7 @@ from pathlib import Path
 
 from database.models import User, Vacancy, Company, Division, Event, EventRegistration
 from database.db import async_session_maker
-from config import FACULTIES
+from config import FACULTIES, MINIAPP_PUBLIC_URL
 from services.admins import get_admin_ids
 from services.company_utils import (
     clean_company_name,
@@ -173,29 +173,19 @@ async def get_sphere_vacancies_count(session, sphere: str | None) -> int:
     return result.scalar() or 0
 
 
-def get_main_menu_keyboard(user_faculty: str = None, vacancies_count: int = 0):
-    """Главное меню с кнопками"""
-    keyboard = [
-        [InlineKeyboardButton(text="Мой профиль", callback_data="profile")],
-        [InlineKeyboardButton(text="Компании-партнеры", callback_data="companies_list")],
-        [InlineKeyboardButton(text="Вакансии", callback_data="vacancies_menu")],
-        [InlineKeyboardButton(text="Мероприятия", callback_data="events_list")],
-        [InlineKeyboardButton(text="Обратная связь", callback_data="feedback")],
-        [InlineKeyboardButton(text="О нас", callback_data="about_us")],
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-
-def get_main_menu_keyboard(user_faculty: str = None, vacancies_count: int = 0):
+def get_main_menu_keyboard(user_faculty: str = None, vacancies_count: int = 0, is_admin_user: bool = False):
     """Build the main user menu."""
     keyboard = [
         [InlineKeyboardButton(text="Мой профиль", callback_data="profile")],
         [InlineKeyboardButton(text="Компании-партнеры", callback_data="companies_list")],
+        [InlineKeyboardButton(text="KVS Job", web_app=WebAppInfo(url=MINIAPP_PUBLIC_URL))],
         [InlineKeyboardButton(text="Вакансии", callback_data="vacancies_menu")],
         [InlineKeyboardButton(text="Мероприятия", callback_data="events_list")],
         [InlineKeyboardButton(text="Обратная связь", callback_data="feedback")],
         [InlineKeyboardButton(text="О нас", callback_data="about_us")],
     ]
+    if is_admin_user:
+        keyboard.append([InlineKeyboardButton(text="Админ-панель", callback_data="admin_panel")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
@@ -521,6 +511,12 @@ async def show_main_menu_or_registration(message: Message, state: FSMContext, us
             await start_registration(message, state)
             return
 
+        if not user.email:
+            from handlers.registration import prompt_existing_user_email
+
+            await prompt_existing_user_email(message, state)
+            return
+
         vacancies_count = await get_user_vacancies_count(session, user.faculty)
 
         welcome_text = f"""
@@ -532,7 +528,7 @@ async def show_main_menu_or_registration(message: Message, state: FSMContext, us
 
 Выбери действие:
 """
-        keyboard = get_main_menu_keyboard(user.faculty, vacancies_count)
+        keyboard = get_main_menu_keyboard(user.faculty, vacancies_count, user.is_admin)
 
         if MENU_IMAGE_PATH:
             photo = FSInputFile(MENU_IMAGE_PATH)
@@ -583,7 +579,7 @@ async def cmd_vacancies(message: Message):
 
 Выбери действие:
 """
-        keyboard = get_main_menu_keyboard(user.faculty, vacancies_count)
+        keyboard = get_main_menu_keyboard(user.faculty, vacancies_count, user.is_admin)
         
         if MENU_IMAGE_PATH:
             photo = FSInputFile(MENU_IMAGE_PATH)
@@ -625,7 +621,7 @@ async def callback_main_menu(callback: CallbackQuery):
 
 Выбери действие:
 """
-        keyboard = get_main_menu_keyboard(user.faculty, vacancies_count)
+        keyboard = get_main_menu_keyboard(user.faculty, vacancies_count, user.is_admin)
         
         # Всегда показываем картинку с caption
         await callback.message.delete()
@@ -1015,6 +1011,7 @@ async def callback_vacancies_menu(callback: CallbackQuery):
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=f"Для меня ({vacancies_count})", callback_data="my_vacancies")],
+            [InlineKeyboardButton(text="Открыть KVS Job", web_app=WebAppInfo(url=MINIAPP_PUBLIC_URL))],
             [InlineKeyboardButton(text="Все вакансии", callback_data="all_vacancies")],
             [InlineKeyboardButton(text="По сферам", callback_data="vacancies_by_sphere")],
             [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
@@ -1059,7 +1056,8 @@ async def callback_my_vacancies(callback: CallbackQuery):
                 "Попробуй посмотреть все вакансии или зайди позже.",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="Все вакансии", callback_data="all_vacancies")],
+                    [InlineKeyboardButton(text="Открыть KVS Job", web_app=WebAppInfo(url=MINIAPP_PUBLIC_URL))],
+            [InlineKeyboardButton(text="Все вакансии", callback_data="all_vacancies")],
                     [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
                 ])
             )
@@ -1338,6 +1336,7 @@ async def callback_profile(callback: CallbackQuery):
 <b>Имя:</b> {user.first_name}
 <b>Фамилия:</b> {user.last_name}
 <b>Отчество:</b> {user.patronymic or "--"}
+<b>Почта:</b> {html.escape(user.email or "--")}
 <b>Курс:</b> {format_course_label(user.course)}
 <b>Факультет:</b> {user.faculty}
 <b>Откуда узнал:</b> {user.info_source}
@@ -1350,7 +1349,7 @@ async def callback_profile(callback: CallbackQuery):
             [InlineKeyboardButton(text="Изменить ФИО", callback_data="edit_name")],
             [InlineKeyboardButton(text="Изменить курс", callback_data="edit_course")],
             [InlineKeyboardButton(text="Изменить факультет", callback_data="edit_faculty")],
-            [InlineKeyboardButton(text="Меню", callback_data="main_menu")]
+            [InlineKeyboardButton(text="Выйти из профиля", callback_data="main_menu")]
         ])
         
         # Если текущее сообщение - фото, удаляем и отправляем текст

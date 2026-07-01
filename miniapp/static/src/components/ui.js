@@ -1,0 +1,85 @@
+import { icons } from './icons.js';
+
+export function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+export function appShell(content, { nav = false, className = '' } = {}) {
+  return `<main class="screen ${className}">${content}</main>${nav ? bottomNav() : ''}`;
+}
+
+export function button(label, { variant = 'primary', action = '', route = '', url = '', disabled = false, icon = icons.arrowRight } = {}) {
+  if (disabled) {
+    return `<button class="btn btn-${variant}" type="button" disabled aria-disabled="true"><span>${escapeHtml(label)}</span>${icon || ''}</button>`;
+  }
+  const dataAttrs = [
+    action ? `data-action="${escapeHtml(action)}"` : '',
+    route ? `data-route="${escapeHtml(route)}"` : '',
+    url ? `data-url="${escapeHtml(url)}"` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return `<button class="btn btn-${variant}" type="button" ${dataAttrs}><span>${escapeHtml(label)}</span>${icon || ''}</button>`;
+}
+
+export function iconButton(label, icon, { action = '', route = '', className = '' } = {}) {
+  return `<button class="icon-btn ${className}" type="button" aria-label="${escapeHtml(label)}" data-action="${escapeHtml(action)}" data-route="${escapeHtml(route)}">${icon}</button>`;
+}
+
+export function topTitle(title, right = '') {
+  return `<header class="screen-header"><h1>${escapeHtml(title)}</h1>${right}</header>`;
+}
+
+export function bottomNav() {
+  const hash = window.location.hash;
+  const active = hash.includes('/events') ? 'events' : hash.includes('/profile') ? 'profile' : 'vacancies';
+
+  const item = (id, label, icon, route) => `
+    <button class="nav-item ${active === id ? 'is-active' : ''}" type="button" data-action="navigate" data-route="${route}" aria-label="${escapeHtml(label)}">
+      ${icon}<span>${escapeHtml(label)}</span>
+    </button>`;
+
+  return `
+    <nav class="bottom-nav" aria-label="Основная навигация">
+      ${item('vacancies', 'Вакансии', icons.briefcase, '/vacancies')}
+      ${item('events', 'События', icons.calendar, '/events')}
+      ${item('profile', 'Профиль', icons.user, '/profile')}
+    </nav>`;
+}
+
+export function chips(items, active, action) {
+  return `
+    <div class="chips" role="tablist">
+      ${items
+        .map(
+          (item) =>
+            `<button class="chip ${item === active ? 'is-active' : ''}" type="button" role="tab" aria-selected="${item === active}" data-action="${escapeHtml(action)}" data-value="${escapeHtml(item)}">${escapeHtml(item)}</button>`,
+        )
+        .join('')}
+    </div>`;
+}
+
+export function skeletonList(count = 3) {
+  return `<section class="list-stack" aria-busy="true" aria-label="Загрузка">${Array.from({ length: count }, () => `<article class="skeleton-card"><i></i><span></span><span style="width:72%"></span><b></b></article>`).join('')}</section>`;
+}
+
+export function emptyState(title, text, icon = '') {
+  return `<section class="state-card">${icon ? `<span class="state-icon">${icon}</span>` : ''}<strong>${escapeHtml(title)}</strong><p>${escapeHtml(text)}</p></section>`;
+}
+
+export function errorState(text = 'Не удалось загрузить данные. Попробуйте обновить экран.') {
+  return emptyState('Что-то пошло не так', text, icons.link);
+}
+
+export function badge(label, className = '') {
+  return `<span class="badge ${className}">${escapeHtml(label)}</span>`;
+}
+
+export function verifiedIcon() {
+  return '<span class="verified" aria-label="Проверенная компания">✓</span>';
+}
