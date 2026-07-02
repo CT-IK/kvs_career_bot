@@ -55,15 +55,18 @@ export function bottomNav() {
 }
 
 export function chips(items, active, action) {
-  // A unique view-transition-name per screen lets the active pill glide
-  // between chips without pairing across different screens.
-  const scope = action.includes('event') ? 'event' : 'vacancy';
+  // No view-transition-name here: naming the active pill made the browser
+  // animate it as if the SAME element moved between the vacancies and events
+  // screens (e.g. both default to an active "Все" chip), when they're really
+  // two unrelated chips on two different screens — looked like the chip
+  // floating/jumping during tab switches. Same class of bug as the bottom
+  // nav highlight fixed earlier; the fix is the same: don't name it.
   return `
     <div class="chips" role="tablist">
       ${items
         .map(
           (item) =>
-            `<button class="chip ${item === active ? 'is-active' : ''}" type="button" role="tab" aria-selected="${item === active}"${item === active ? ` style="view-transition-name:chip-${scope}"` : ''} data-action="${escapeHtml(action)}" data-value="${escapeHtml(item)}">${escapeHtml(item)}</button>`,
+            `<button class="chip ${item === active ? 'is-active' : ''}" type="button" role="tab" aria-selected="${item === active}" data-action="${escapeHtml(action)}" data-value="${escapeHtml(item)}">${escapeHtml(item)}</button>`,
         )
         .join('')}
     </div>`;

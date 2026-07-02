@@ -4,6 +4,8 @@ import {
   addAdminPlace,
   logoutProfile,
   setAdminMode,
+  startCreateEvent,
+  startEditEvent,
   startProfileLogin,
   store,
   submitProfileEmail,
@@ -15,6 +17,7 @@ import { renderJobs, renderJobsLoading } from '../features/jobs.js';
 import { renderOnboarding, startOnboarding } from '../features/onboarding.js';
 import { renderProfile, renderProfileLoading } from '../features/profile.js';
 import { renderVacancyDetail, renderVacancyDetailLoading } from '../features/vacancyDetails.js';
+import { createEvent, deleteEvent, updateEvent } from '../services/api.js';
 
 const app = document.querySelector('#app');
 const tg = window.Telegram?.WebApp;
@@ -318,6 +321,101 @@ document.addEventListener('click', (e) => {
     });
     if (!ok) tg?.HapticFeedback?.notificationOccurred?.('error');
     render().then(() => { if (!ok) document.querySelector('#adminPlaceTitle')?.focus(); });
+  }
+
+  if (action === 'submit-admin-event') {
+    const title = document.querySelector('#adminEventTitle')?.value?.trim() || '';
+    if (!title) {
+      store.adminEventError = 'Укажи название мероприятия';
+      tg?.HapticFeedback?.notificationOccurred?.('error');
+      render().then(() => document.querySelector('#adminEventTitle')?.focus());
+    } else {
+      const payload = {
+        title,
+        category: document.querySelector('#adminEventCategory')?.value?.trim() || '',
+        format: document.querySelector('#adminEventFormat')?.value?.trim() || '',
+        lead: document.querySelector('#adminEventLead')?.value?.trim() || '',
+        date: document.querySelector('#adminEventDate')?.value?.trim() || '',
+        place: document.querySelector('#adminEventPlace')?.value?.trim() || '',
+        description: document.querySelector('#adminEventDescription')?.value?.trim() || '',
+        deadline: document.querySelector('#adminEventDeadline')?.value?.trim() || '',
+        image: document.querySelector('#adminEventImage')?.value?.trim() || '',
+        url: document.querySelector('#adminEventUrl')?.value?.trim() || '',
+        isActive: document.querySelector('#adminEventActive')?.checked ?? true,
+      };
+      const editingId = store.adminEventEditingId;
+      (editingId ? updateEvent(editingId, payload) : createEvent(payload))
+        .then(() => {
+          store.adminEventError = '';
+          startCreateEvent();
+          tg?.HapticFeedback?.notificationOccurred?.('success');
+          showToast(editingId ? 'Мероприятие обновлено' : 'Мероприятие добавлено', icons.check);
+          render();
+        })
+        .catch((error) => {
+          store.adminEventError = error.message || 'Не удалось сохранить мероприятие';
+          tg?.HapticFeedback?.notificationOccurred?.('error');
+          render();
+        });
+    }
+  }
+
+  if (action === 'edit-admin-event') {
+    const eventToEdit = store.adminEvents.find((item) => item.id === target.dataset.id);
+    if (eventToEdit) {
+      startEditEvent(eventToEdit);
+      store.adminMode = 'panel';
+      // This button also lives on public event cards (Мероприятия tab) now —
+      // the edit *form* only exists in the admin panel, so jump there when
+      // clicked from anywhere else instead of re-rendering in place.
+      if (parseRoute().name === 'profile') {
+        render();
+        window.scrollTo({ top: 0, behavior: 'instant' });
+      } else {
+        navigate('/profile');
+      }
+    } else {
+      // store.adminEvents is only stale if the list fetch failed or hasn't
+      // resolved yet — surface that instead of silently doing nothing.
+      tg?.HapticFeedback?.notificationOccurred?.('error');
+      showToast('Не удалось открыть мероприятие для редактирования', icons.link);
+    }
+  }
+
+  if (action === 'cancel-admin-event') {
+    startCreateEvent();
+    render();
+  }
+
+  if (action === 'delete-admin-event') {
+    const eventId = target.dataset.id;
+    const runDelete = () => {
+      deleteEvent(eventId)
+        .then(() => {
+          if (store.adminEventEditingId === eventId) startCreateEvent();
+          tg?.HapticFeedback?.notificationOccurred?.('success');
+          showToast('Мероприятие удалено', icons.trash);
+          render();
+        })
+        .catch((error) => {
+          const message = error.message || 'Не удалось удалить мероприятие';
+          store.adminEventError = message;
+          tg?.HapticFeedback?.notificationOccurred?.('error');
+          // The admin panel's own error banner isn't visible from other
+          // screens (e.g. this button also lives on public event cards now),
+          // so show a toast too rather than failing silently there.
+          showToast(message, icons.link);
+          render();
+        });
+    };
+    // tg.showConfirm() is gated on the client negotiating a recent enough Bot
+    // API version — on a client that doesn't support it, it can silently do
+    // nothing (no error, no callback), which looked exactly like "delete is
+    // broken". window.confirm() is a plain browser API and works reliably
+    // inside Telegram's WebView regardless of client/Bot-API version.
+    if (window.confirm('Удалить это мероприятие?')) {
+      runDelete();
+    }
   }
 
   if (action === 'set-vacancy-category') {

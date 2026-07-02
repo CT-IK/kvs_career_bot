@@ -72,6 +72,12 @@ MINIAPP_ENABLED = _env_bool("MINIAPP_ENABLED", default=True)
 MINIAPP_HOST = os.getenv("MINIAPP_HOST", "0.0.0.0").strip() or "0.0.0.0"
 MINIAPP_PORT = max(1, min(65535, _env_int("MINIAPP_PORT", default=8000)))
 MINIAPP_PUBLIC_URL = os.getenv("MINIAPP_PUBLIC_URL", "http://localhost:8000/miniapp").strip()
+# Separate from VACANCY_SYNC_HOUR/MINUTE above (that one syncs Google Sheets into the
+# bot's own SQL vacancies table) — this refreshes the miniapp's own in-memory Google
+# Sheets cache, independently, at midnight by default.
+MINIAPP_VACANCY_REFRESH_SCHEDULE_ENABLED = _env_bool("MINIAPP_VACANCY_REFRESH_SCHEDULE_ENABLED", default=True)
+MINIAPP_VACANCY_REFRESH_HOUR = min(23, max(0, _env_int("MINIAPP_VACANCY_REFRESH_HOUR", default=0)))
+MINIAPP_VACANCY_REFRESH_MINUTE = min(59, max(0, _env_int("MINIAPP_VACANCY_REFRESH_MINUTE", default=0)))
 
 # Факультеты
 FACULTIES = {

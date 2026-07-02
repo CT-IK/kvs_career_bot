@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import logging
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +16,8 @@ from google.oauth2.service_account import Credentials
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_DIR / ".env")
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 SHEET_CACHE_TTL_SECONDS = max(15, int(os.getenv("MINIAPP_SHEET_CACHE_TTL_SECONDS", "300")))
 
@@ -327,3 +332,58 @@ def build_categories(items: list[dict[str, Any]]) -> list[str]:
     present = {label for item in items for label in item.get("faculties", [])}
     ordered = [label for _, label in FACULTY_COLUMNS if label in present]
     return ["Все", *ordered]
+
+
+async def run_daily_vacancy_refresh_scheduler() -> None:
+    """Force a fresh Google Sheets read for the miniapp's own vacancy cache
+    every day at a configured time (defaults to 00:00 Europe/Moscow).
+
+    This is independent of the bot's VACANCY_SYNC_HOUR/MINUTE schedule in
+    services/vacancy_scheduler.py, which syncs a separate SQL `vacancies`
+    table used by the Telegram bot's own vacancy browsing — the miniapp reads
+    Google Sheets directly into its own in-memory cache and needed its own
+    schedule. Reuses that module's time-math helpers rather than duplicating them.
+    """
+    from config import (
+        MINIAPP_VACANCY_REFRESH_HOUR,
+        MINIAPP_VACANCY_REFRESH_MINUTE,
+        MINIAPP_VACANCY_REFRESH_SCHEDULE_ENABLED,
+    )
+    from services.vacancy_scheduler import get_next_vacancy_sync_run, get_vacancy_sync_timezone
+
+    if not MINIAPP_VACANCY_REFRESH_SCHEDULE_ENABLED:
+        logger.info("Miniapp vacancy refresh scheduler is disabled")
+        return
+
+    timezone = get_vacancy_sync_timezone()
+    logger.info(
+        "Miniapp vacancy refresh scheduler enabled at %02d:%02d (%s)",
+        MINIAPP_VACANCY_REFRESH_HOUR,
+        MINIAPP_VACANCY_REFRESH_MINUTE,
+        getattr(timezone, "key", None) or timezone.tzname(None) or str(timezone),
+    )
+
+    try:
+        while True:
+            now = datetime.now(timezone)
+            next_run = get_next_vacancy_sync_run(
+                now,
+                hour=MINIAPP_VACANCY_REFRESH_HOUR,
+                minute=MINIAPP_VACANCY_REFRESH_MINUTE,
+            )
+            sleep_seconds = max(1.0, (next_run - now).total_seconds())
+            logger.info("Next miniapp vacancy refresh scheduled for %s", next_run.isoformat())
+            await asyncio.sleep(sleep_seconds)
+
+            try:
+                items, loaded_at = await asyncio.to_thread(load_vacancies_from_google_sheet, True)
+                logger.info(
+                    "Miniapp vacancy refresh finished: %s items (loaded_at=%s)",
+                    len(items),
+                    loaded_at,
+                )
+            except Exception:
+                logger.exception("Scheduled miniapp vacancy refresh failed")
+    except asyncio.CancelledError:
+        logger.info("Miniapp vacancy refresh scheduler stopped")
+        raise

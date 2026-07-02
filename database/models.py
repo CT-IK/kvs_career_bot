@@ -113,6 +113,33 @@ class Division(Base):
     company = relationship("Company", back_populates="divisions")
 
 
+class MiniappEvent(Base):
+    """Career events shown in the miniapp's "Мероприятия" tab.
+
+    Separate from Event/EventRegistration below, which power the bot's own
+    capacity-limited registration flow — miniapp events are simple
+    informational cards linking out to an external registration URL, with no
+    registration/capacity tracking of their own.
+    """
+
+    __tablename__ = "miniapp_events"
+
+    id = Column(Integer, primary_key=True)
+    category = Column(String(50), nullable=False, default="Другое")
+    format = Column(String(50), nullable=False, default="Офлайн")
+    image_url = Column(Text)
+    lead = Column(String(255))
+    title = Column(String(255), nullable=False)
+    date_text = Column(String(255))
+    place = Column(String(255))
+    description = Column(Text)
+    deadline_text = Column(String(255))
+    external_url = Column(Text)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Event(Base):
     __tablename__ = "events"
 

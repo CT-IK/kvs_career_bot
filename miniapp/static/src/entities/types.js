@@ -41,6 +41,7 @@
  * @property {string} description
  * @property {string} deadline
  * @property {string} url
+ * @property {boolean} [isActive] - admin-only visibility toggle, present on /admin/events
  *
  * @typedef {Object} Education
  * @property {string} university

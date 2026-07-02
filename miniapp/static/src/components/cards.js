@@ -1,4 +1,4 @@
-import { store } from '../app/store.js';
+import { isAdminProfile, store } from '../app/store.js';
 import { icons } from './icons.js';
 import { badge, escapeHtml, verifiedIcon } from './ui.js';
 
@@ -47,6 +47,18 @@ export function vacancyCard(vacancy, { compact = false, index = 0 } = {}) {
 export function eventCard(event, index = 0) {
   const formatClass = event.format === 'Онлайн' ? 'green' : event.format === 'Гибрид' ? 'blue-solid' : 'red';
 
+  // Same manage controls as the admin panel's own event list — shown right on
+  // the public card so an admin browsing this tab doesn't have to separately
+  // remember to go to Профиль → Панель разработчика to edit/delete something
+  // they're looking at right now.
+  const adminControls = isAdminProfile()
+    ? `
+    <div class="event-admin-actions">
+      <button class="btn btn-ghost btn-small" type="button" data-action="edit-admin-event" data-id="${escapeHtml(event.id)}">${icons.pencil}<span>Редактировать</span></button>
+      <button class="btn btn-ghost btn-small" type="button" data-action="delete-admin-event" data-id="${escapeHtml(event.id)}">${icons.trash}<span>Удалить</span></button>
+    </div>`
+    : '';
+
   return `
     <article class="event-card" style="--i:${index}">
       <div class="event-image" style="background-image:url('${escapeHtml(event.image)}')">
@@ -59,6 +71,7 @@ export function eventCard(event, index = 0) {
         <p class="event-meta">${icons.calendar}${escapeHtml(event.date)}</p>
         <p class="event-meta">${icons.mapPin}${escapeHtml(event.place)}</p>
         <p class="card-copy">${escapeHtml(event.description)}</p>
+        ${adminControls}
         <div class="event-actions">
           ${badge(event.deadline, 'red-soft deadline')}
           <button class="btn btn-dark btn-small" type="button" data-action="open-link" data-url="${escapeHtml(event.url)}">Подробнее ${icons.arrowUpRight}</button>

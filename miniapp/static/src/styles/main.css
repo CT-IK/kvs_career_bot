@@ -574,6 +574,24 @@ svg {
   padding-top: 16px;
 }
 
+/* Admin-only edit/delete controls on a public event card — visually set apart
+   from the regular "Подробнее" action below it. */
+.event-admin-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--color-divider);
+}
+
+.event-admin-actions .btn {
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 15px;
+}
+
+.event-admin-actions .btn svg { width: 18px; height: 18px; }
+
 .card-hit {
   position: absolute;
   inset: 0 0 76px;
@@ -980,6 +998,26 @@ svg {
   font-size: 14px;
 }
 
+.admin-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.admin-checkbox input { width: auto; min-height: 0; }
+
+.admin-form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.admin-form-actions .btn { flex: 1; }
+
 .admin-list { display: grid; gap: 8px; margin-top: 16px; }
 
 .admin-list article {
@@ -995,6 +1033,20 @@ svg {
 
 .admin-list article span,
 .admin-empty { color: var(--color-muted); font-size: 15px; overflow-wrap: anywhere; }
+
+.admin-list-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.admin-list-actions .btn {
+  min-height: 38px;
+  padding: 0 12px;
+  font-size: 15px;
+}
+
+.admin-list-actions .btn svg { width: 18px; height: 18px; }
 
 /* ─── Profile edit — step stepper ────────────────────────────── */
 .step-summary { margin: 16px 0 26px; }

@@ -1,13 +1,13 @@
 import { store } from '../app/store.js';
 import { eventCard } from '../components/cards.js';
 import { icons } from '../components/icons.js';
-import { appShell, chips, emptyState, errorState, skeletonList, topTitle } from '../components/ui.js';
+import { appShell, chips, emptyState, errorState, iconButton, skeletonList, topTitle } from '../components/ui.js';
 import { getEvents } from '../services/api.js';
 
 export function renderEventsLoading() {
   return appShell(
     `
-    ${topTitle('Мероприятия')}
+    ${topTitle('Мероприятия', iconButton('Уведомления', icons.bell, { action: 'notify-placeholder' }))}
     ${chips(['Все', 'Хакатоны', 'Воркшопы', 'Дни карьеры'], store.filters.eventCategory, 'set-event-category')}
     ${skeletonList(3)}
     `,
@@ -18,6 +18,11 @@ export function renderEventsLoading() {
 export async function renderEvents() {
   try {
     const data = await getEvents({ category: store.filters.eventCategory });
+    // Lets the admin's "Редактировать" button on a public event card look up
+    // the full event record without a separate round trip — same list shape
+    // as the admin panel's own fetch, just possibly category-filtered; the
+    // panel re-fetches the unfiltered list itself whenever it's opened.
+    store.adminEvents = data.items;
 
     const list = data.items.length
       ? `<section class="list-stack">${data.items.map((item, i) => eventCard(item, i)).join('')}</section>`
@@ -25,13 +30,13 @@ export async function renderEvents() {
 
     return appShell(
       `
-      ${topTitle('Мероприятия')}
+      ${topTitle('Мероприятия', iconButton('Уведомления', icons.bell, { action: 'notify-placeholder' }))}
       ${chips(data.categories, store.filters.eventCategory, 'set-event-category')}
       ${list}
       `,
       { nav: true },
     );
   } catch {
-    return appShell(`${topTitle('Мероприятия')}${errorState('Не удалось загрузить мероприятия.')}`, { nav: true });
+    return appShell(`${topTitle('Мероприятия', iconButton('Уведомления', icons.bell, { action: 'notify-placeholder' }))}${errorState('Не удалось загрузить мероприятия.')}`, { nav: true });
   }
 }

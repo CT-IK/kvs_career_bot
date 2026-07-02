@@ -22,6 +22,22 @@ function readFavorites() {
   }
 }
 
+function emptyEventDraft() {
+  return {
+    category: '',
+    format: 'Офлайн',
+    image: '',
+    lead: '',
+    title: '',
+    date: '',
+    place: '',
+    description: '',
+    deadline: '',
+    url: '',
+    isActive: true,
+  };
+}
+
 export const store = {
   route: null,
   filters: {
@@ -37,6 +53,11 @@ export const store = {
   adminDevelopers: readList(ADMIN_DEVELOPERS_KEY),
   adminPlaces: readList(ADMIN_PLACES_KEY),
   adminFormError: '',
+  adminEvents: [],
+  adminEventsLoaded: false,
+  adminEventDraft: emptyEventDraft(),
+  adminEventEditingId: null,
+  adminEventError: '',
   favorites: readFavorites(),
   onboardingSeen: window.localStorage.getItem(ONBOARDING_KEY) === '1',
 };
@@ -110,6 +131,30 @@ export function addAdminPlace({ title, address }) {
   store.adminFormError = '';
   window.localStorage.setItem(ADMIN_PLACES_KEY, JSON.stringify(store.adminPlaces));
   return true;
+}
+
+export function startCreateEvent() {
+  store.adminEventEditingId = null;
+  store.adminEventDraft = emptyEventDraft();
+  store.adminEventError = '';
+}
+
+export function startEditEvent(event) {
+  store.adminEventEditingId = event.id;
+  store.adminEventDraft = {
+    category: event.category || '',
+    format: event.format || 'Офлайн',
+    image: event.image || '',
+    lead: event.lead || '',
+    title: event.title || '',
+    date: event.date || '',
+    place: event.place || '',
+    description: event.description || '',
+    deadline: event.deadline || '',
+    url: event.url || '',
+    isActive: event.isActive !== false,
+  };
+  store.adminEventError = '';
 }
 
 export function saveFavorites() {

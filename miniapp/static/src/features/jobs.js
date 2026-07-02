@@ -1,13 +1,13 @@
 import { store } from '../app/store.js';
 import { vacancyCard } from '../components/cards.js';
 import { icons } from '../components/icons.js';
-import { appShell, button, chips, emptyState, errorState, escapeHtml, iconButton, skeletonList, topTitle } from '../components/ui.js';
+import { appShell, button, chips, emptyState, errorState, escapeHtml, skeletonList, topTitle } from '../components/ui.js';
 import { getVacancies } from '../services/api.js';
 
 export function renderJobsLoading() {
   return appShell(
     `
-    ${topTitle('Вакансии', iconButton('Уведомления', icons.bell, { action: 'notify-placeholder' }))}
+    ${topTitle('Вакансии')}
     <label class="search-field">${icons.search}<input type="search" placeholder="Поиск стажировок и вакансий" disabled /></label>
     ${chips(['Все', 'ИТиАБД', 'ИОО', 'МЭО', 'ФЭБ', 'СНиМК', 'НАБ', 'ВШУ', 'ФФ', 'ЮФ'], store.filters.vacancyCategory, 'set-vacancy-category')}
     ${skeletonList(3)}
@@ -35,7 +35,7 @@ export async function renderJobs() {
 
     return appShell(
       `
-      ${topTitle('Вакансии', iconButton('Уведомления', icons.bell, { action: 'notify-placeholder' }))}
+      ${topTitle('Вакансии')}
       <label class="search-field">${icons.search}<input id="vacancySearch" type="search" value="${escapeHtml(store.filters.vacancyQuery)}" placeholder="Поиск стажировок и вакансий" autocomplete="off" /></label>
       ${chips(data.categories, store.filters.vacancyCategory, 'set-vacancy-category')}
       ${list}
@@ -45,7 +45,7 @@ export async function renderJobs() {
   } catch {
     return appShell(
       `
-      ${topTitle('Вакансии', iconButton('Уведомления', icons.bell, { action: 'notify-placeholder' }))}
+      ${topTitle('Вакансии')}
       ${errorState('Не удалось загрузить вакансии. Проверь подключение и попробуй ещё раз.')}
       `,
       { nav: true },

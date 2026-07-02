@@ -3,7 +3,7 @@ import { vacancies } from '../mock/data.js';
 import { vacancyCard } from '../components/cards.js';
 import { icons } from '../components/icons.js';
 import { appShell, badge, button, emptyState, errorState, escapeHtml, skeletonList, topTitle } from '../components/ui.js';
-import { getProfile } from '../services/api.js';
+import { getAdminEvents, getProfile } from '../services/api.js';
 
 function tabs() {
   const count = store.favorites.size;
@@ -21,7 +21,7 @@ export function renderProfileLoading() {
     return appShell(loginGateView(), { nav: true, className: 'profile-login-screen' });
   }
   if (isAdminProfile() && store.adminMode === 'panel') {
-    return appShell(adminPanelView(), { nav: true, className: 'admin-profile-screen' });
+    return appShell(adminPanelShell(skeletonList(2)), { nav: true, className: 'admin-profile-screen' });
   }
   return appShell(`${topTitle('Мой профиль')}${tabs()}${skeletonList(2)}`, { nav: true });
 }
@@ -116,7 +116,7 @@ function listRows(items, emptyText, renderItem) {
   return items.length ? items.map(renderItem).join('') : `<p class="admin-empty">${escapeHtml(emptyText)}</p>`;
 }
 
-function adminPanelView() {
+function adminPanelShell(eventsSectionHtml) {
   return `
     ${topTitle('Панель разработчика')}
     <section class="admin-window">
@@ -159,9 +159,80 @@ function adminPanelView() {
       ${listRows(store.adminPlaces, 'Места пока не добавлены.', (item) => `<article><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.address)}</span></article>`)}
     </section>
 
+    ${eventsSectionHtml}
+
     <section class="profile-actions">
       ${button('Выйти из профиля', { variant: 'ghost', action: 'logout-profile', icon: icons.logout })}
     </section>`;
+}
+
+function adminEventFormSection() {
+  const draft = store.adminEventDraft;
+  const isEditing = Boolean(store.adminEventEditingId);
+
+  return `
+    <section class="admin-window">
+      ${store.adminEventError ? `<p class="admin-error" role="alert">${escapeHtml(store.adminEventError)}</p>` : ''}
+
+      <section class="admin-form">
+        <h2>${isEditing ? 'Редактировать мероприятие' : 'Добавить мероприятие'}</h2>
+        <label class="sr-only" for="adminEventTitle">Название</label>
+        <input id="adminEventTitle" type="text" placeholder="Название мероприятия" value="${escapeHtml(draft.title)}" />
+        <div class="form-grid">
+          <label class="sr-only" for="adminEventCategory">Категория</label>
+          <input id="adminEventCategory" type="text" placeholder="Категория (Хакатоны, Воркшопы...)" value="${escapeHtml(draft.category)}" />
+          <label class="sr-only" for="adminEventFormat">Формат</label>
+          <input id="adminEventFormat" type="text" placeholder="Формат (Онлайн/Офлайн/Гибрид)" value="${escapeHtml(draft.format)}" />
+        </div>
+        <label class="sr-only" for="adminEventLead">Короткий анонс</label>
+        <input id="adminEventLead" type="text" placeholder="Короткий анонс над заголовком" value="${escapeHtml(draft.lead)}" />
+        <div class="form-grid">
+          <label class="sr-only" for="adminEventDate">Дата</label>
+          <input id="adminEventDate" type="text" placeholder="Дата и время" value="${escapeHtml(draft.date)}" />
+          <label class="sr-only" for="adminEventPlace">Место</label>
+          <input id="adminEventPlace" type="text" placeholder="Место проведения" value="${escapeHtml(draft.place)}" />
+        </div>
+        <label class="sr-only" for="adminEventDescription">Описание</label>
+        <input id="adminEventDescription" type="text" placeholder="Описание мероприятия" value="${escapeHtml(draft.description)}" />
+        <label class="sr-only" for="adminEventDeadline">Дедлайн</label>
+        <input id="adminEventDeadline" type="text" placeholder="Текст про дедлайн регистрации" value="${escapeHtml(draft.deadline)}" />
+        <label class="sr-only" for="adminEventImage">Ссылка на изображение</label>
+        <input id="adminEventImage" type="url" placeholder="Ссылка на изображение обложки" value="${escapeHtml(draft.image)}" />
+        <label class="sr-only" for="adminEventUrl">Ссылка на регистрацию</label>
+        <input id="adminEventUrl" type="url" placeholder="Ссылка на регистрацию" value="${escapeHtml(draft.url)}" />
+        <label class="admin-checkbox">
+          <input type="checkbox" id="adminEventActive" ${draft.isActive ? 'checked' : ''} />
+          Показывать в приложении
+        </label>
+        <div class="admin-form-actions">
+          ${button(isEditing ? 'Сохранить изменения' : 'Добавить мероприятие', { variant: 'primary', action: 'submit-admin-event', icon: icons.check })}
+          ${isEditing ? button('Отмена', { variant: 'ghost', action: 'cancel-admin-event', icon: '' }) : ''}
+        </div>
+      </section>
+    </section>
+
+    <section class="admin-list">
+      <h2>Мероприятия</h2>
+      ${listRows(store.adminEvents, 'Мероприятия пока не добавлены.', (event) => `
+        <article>
+          <strong>${escapeHtml(event.title)}</strong>
+          <span>${escapeHtml(event.category || 'Без категории')} · ${escapeHtml(event.date || 'дата не указана')}${event.isActive ? '' : ' · скрыто'}</span>
+          <div class="admin-list-actions">
+            <button class="btn btn-ghost btn-small" type="button" data-action="edit-admin-event" data-id="${escapeHtml(event.id)}">${icons.pencil}<span>Редактировать</span></button>
+            <button class="btn btn-ghost btn-small" type="button" data-action="delete-admin-event" data-id="${escapeHtml(event.id)}">${icons.trash}<span>Удалить</span></button>
+          </div>
+        </article>`)}
+    </section>`;
+}
+
+async function adminPanelView() {
+  try {
+    const data = await getAdminEvents();
+    store.adminEvents = data.items;
+  } catch {
+    store.adminEventError = 'Не удалось загрузить мероприятия.';
+  }
+  return adminPanelShell(adminEventFormSection());
 }
 
 function favoritesView() {
@@ -217,7 +288,7 @@ export async function renderProfile(route) {
   }
 
   if (isAdminProfile() && store.adminMode === 'panel') {
-    return appShell(adminPanelView(), { nav: true, className: 'admin-profile-screen' });
+    return appShell(await adminPanelView(), { nav: true, className: 'admin-profile-screen' });
   }
 
   try {

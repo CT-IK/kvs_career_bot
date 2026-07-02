@@ -21,6 +21,33 @@ async function request(path) {
   return response.json();
 }
 
+function authHeaders() {
+  const initData = window.Telegram?.WebApp?.initData;
+  return initData ? { 'X-Telegram-Init-Data': initData } : {};
+}
+
+// Admin mutations hit the real backend directly — there's no meaningful "mock
+// mode" for writes against the database, and the server verifies the caller
+// is an admin via signed Telegram initData regardless of what the client sends.
+async function adminRequest(path, { method = 'GET', body } = {}) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const data = await response.json();
+      if (data?.detail) detail = data.detail;
+    } catch {
+      /* non-JSON error body, keep the generic message */
+    }
+    throw new Error(detail);
+  }
+  return response.status === 204 ? null : response.json();
+}
+
 function normalize(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -98,4 +125,20 @@ export async function getProfile() {
   if (real) return real;
 
   return withMockState((forceEmpty) => (forceEmpty ? null : profile));
+}
+
+export async function getAdminEvents() {
+  return adminRequest('/admin/events');
+}
+
+export async function createEvent(payload) {
+  return adminRequest('/admin/events', { method: 'POST', body: payload });
+}
+
+export async function updateEvent(id, payload) {
+  return adminRequest(`/admin/events/${encodeURIComponent(id)}`, { method: 'PUT', body: payload });
+}
+
+export async function deleteEvent(id) {
+  return adminRequest(`/admin/events/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
