@@ -383,7 +383,6 @@ svg {
 .state-card,
 .resume-summary,
 .content-section,
-.progress-callout,
 .login-card {
   background: var(--color-surface);
   border: 1px solid var(--color-card-border, rgba(0, 0, 0, 0.04));
@@ -415,6 +414,7 @@ svg {
 
 .company-logo {
   display: grid;
+  overflow: hidden;
   width: 56px;
   height: 56px;
   place-items: center;
@@ -433,6 +433,21 @@ svg {
   border-radius: 21px;
   font-size: 32px;
   box-shadow: var(--shadow-float);
+}
+
+/* Real brand logos keep a white tile regardless of theme — most wordmarks are
+   only guaranteed legible on a light background — with padding since they're
+   rarely square (wordmarks vs. the icon marks the initials avatar assumes). */
+.company-logo-image {
+  background: #fff;
+  border: 1px solid var(--color-divider);
+  padding: 8px;
+}
+
+.company-logo-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .vacancy-info { min-width: 0; }
@@ -841,31 +856,6 @@ svg {
 .timeline-item li,
 .red-list li { font-size: 20px; line-height: 1.48; color: var(--color-body); }
 
-/* ─── Progress callout ────────────────────────────────────────── */
-.progress-callout {
-  display: grid;
-  grid-template-columns: 30px 1fr;
-  gap: 12px;
-  margin: 0 -16px;
-  border-right: 0;
-  border-left: 0;
-  box-shadow: none;
-  padding: 20px 16px;
-}
-
-.progress-callout svg { color: var(--color-primary); }
-.progress-callout strong { font-size: 21px; font-weight: 800; }
-
-.progress-callout span {
-  display: block;
-  height: 7px;
-  margin: 14px 0;
-  border-radius: 999px;
-  background: var(--color-primary);
-}
-
-.progress-callout p { margin: 0; color: var(--color-muted); font-size: 17px; }
-
 /* ─── Profile actions ─────────────────────────────────────────── */
 .profile-actions { display: grid; gap: 13px; padding: 22px 0 0; }
 
@@ -1117,8 +1107,15 @@ svg {
 
 .detail-cover {
   position: relative;
+  overflow: hidden;
   min-height: 278px;
-  background: linear-gradient(135deg, var(--brand, var(--color-primary)), rgba(41, 41, 39, 0.6));
+  /* Fades to fully transparent at the bottom so the real page background
+     (light or dark theme) shows through underneath — a soft blend into the
+     content below instead of a hard-edged color block. The rgba() version is
+     a fallback for browsers without color-mix() support; it's overridden by
+     the color-mix() rule wherever that's understood. */
+  background: linear-gradient(180deg, var(--brand, var(--color-primary)) 0%, rgba(0, 0, 0, 0.32) 60%, transparent 100%);
+  background: linear-gradient(180deg, var(--brand, var(--color-primary)) 0%, color-mix(in srgb, var(--brand, var(--color-primary)) 55%, black) 60%, transparent 100%);
 }
 
 .back-floating,
@@ -1154,6 +1151,8 @@ svg {
 }
 
 .detail-logo-wrap {
+  position: relative;
+  z-index: 2;
   display: flex;
   justify-content: center;
   margin-top: -40px;

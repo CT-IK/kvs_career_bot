@@ -82,6 +82,26 @@ function directionFor(prev, next) {
   return 'fade';
 }
 
+// Never let a caller wait on a promise indefinitely — transition.finished can
+// reject (transition interrupted by another navigation) or, in rare browser
+// edge cases, simply never settle. Capping the wait keeps render() from
+// hanging forever if that happens.
+function withTimeout(promise, ms) {
+  return Promise.race([
+    Promise.resolve(promise).catch(() => {}),
+    new Promise((resolve) => window.setTimeout(resolve, ms)),
+  ]);
+}
+
+// Returns a promise that resolves once it's safe to mutate the DOM again —
+// once the slide animation has finished (or ANIMATION_MAX_WAIT_MS elapses,
+// whichever first), not just once the callback ran. render() awaits this
+// before swapping the loading skeleton for real content: replacing innerHTML
+// mid-animation (which happens whenever data arrives faster than the ~300ms
+// transition) changed the live page's height under the still-playing
+// transition and looked like the whole screen jerking/scrolling.
+const ANIMATION_MAX_WAIT_MS = 400;
+
 function swapView(html, direction, scrollTop = null) {
   const apply = () => {
     app.innerHTML = html;
@@ -91,14 +111,16 @@ function swapView(html, direction, scrollTop = null) {
 
   if (reduceMotion?.matches || !document.startViewTransition) {
     apply();
-    return;
+    return Promise.resolve();
   }
 
   document.documentElement.dataset.nav = direction;
   const transition = document.startViewTransition(apply);
-  transition.finished.finally(() => {
+  const cleanup = () => {
     if (document.documentElement.dataset.nav === direction) delete document.documentElement.dataset.nav;
-  });
+  };
+  transition.finished.finally(cleanup);
+  return withTimeout(transition.finished, ANIMATION_MAX_WAIT_MS);
 }
 
 /* ─── Telegram native back button on nested screens ───────────── */
@@ -179,13 +201,14 @@ async function render({ silent = false, transition = null } = {}) {
   const selEnd = focused?.selectionEnd;
 
   let scrollTarget = 0;
+  let transitionDone = Promise.resolve();
   if (!silent) {
     if (prev && prev.key !== key) scrollMemory.set(prev.key, window.scrollY);
     scrollTarget = direction === 'pop' ? scrollMemory.get(key) ?? 0 : 0;
-    swapView(loadingFor(route), direction, scrollTarget);
+    transitionDone = swapView(loadingFor(route), direction, scrollTarget);
   }
 
-  const html = await viewFor(route);
+  const [html] = await Promise.all([viewFor(route), transitionDone]);
   if (store.route !== route) return;
 
   app.innerHTML = html;

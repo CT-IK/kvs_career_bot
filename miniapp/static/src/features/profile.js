@@ -106,19 +106,9 @@ function resumeView(profile) {
         </article>`).join('')}
     </section>
 
-    <section class="progress-callout">
-      ${icons.star}
-      <div>
-        <strong>Резюме заполнено на 100%</strong>
-        <span></span>
-        <p>Резюме с заполненным профилем просматривают в 3× чаще</p>
-      </div>
-    </section>
-
     <section class="profile-actions">
       ${button('Редактировать профиль', { variant: 'dark', action: 'navigate', route: '/profile/edit', icon: icons.pencil })}
       ${button('Выйти', { variant: 'ghost', action: 'logout-profile', icon: icons.logout })}
-      ${button('Скачать резюме как PDF', { variant: 'ghost', disabled: true, icon: icons.download })}
     </section>`;
 }
 

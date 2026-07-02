@@ -52,6 +52,76 @@ FACULTY_CHECKED_VALUES = {"да", "yes", "1", "x", "✓", "true", "т", "+"}
 BRAND_COLORS = ["#21A33B", "#159DD8", "#F40909", "#EC1C24", "#6266FF", "#C40016", "#009F62"]
 METRO_COLORS = ["#D0183D", "#1268B3", "#159B55", "#EC7D00", "#7B61FF", "#C40016"]
 
+# Known employer logos (freely-licensed files from Wikimedia Commons, served from
+# assets/images/logos/), each with its real brand color for the vacancy-detail
+# banner. Matched against the "Организация" cell by substring so minor spelling
+# variants in the sheet still resolve. Companies without a verified free-licensed
+# logo (e.g. Газпромбанк, Билайн, Росатом) intentionally have none — they fall
+# back to the colored-initial avatar and hashed banner color, same as any
+# unrecognized organization.
+COMPANY_LOGOS: list[tuple[str, str, str, tuple[str, ...]]] = [
+    ("sberbank", "svg", "#21A038", ("сбербанк", "сбер")),
+    ("tbank", "svg", "#FFDD2D", ("т-банк", "тбанк", "тинькофф", "tinkoff", "t-bank")),
+    ("vtb", "svg", "#002882", ("втб",)),
+    ("alfabank", "svg", "#EF3124", ("альфа-банк", "альфабанк", "alfa-bank", "alfa bank")),
+    ("raiffeisen", "svg", "#FFE600", ("райффайзен", "raiffeisen")),
+    ("rosbank", "svg", "#002F87", ("росбанк", "rosbank")),
+    ("yandex", "svg", "#FC3F1D", ("яндекс", "yandex")),
+    ("vk", "svg", "#0077FF", ("вконтакте", "vkontakte", "vk company", "mail.ru", "мейл.ру")),
+    ("mts", "svg", "#FF0000", ("мтс", "mts")),
+    ("megafon", "svg", "#00B956", ("мегафон", "megafon")),
+    ("rostelecom", "svg", "#7B2BF9", ("ростелеком", "rostelecom")),
+    ("ozon", "svg", "#005BFF", ("озон", "ozon")),
+    ("wildberries", "png", "#CB11AB", ("wildberries", "вайлдберриз")),
+    ("x5group", "svg", "#F37021", ("x5 group", "икс 5", "икс5", "пятёрочка", "пятерочка", "перекрёсток", "перекресток")),
+    ("magnit", "svg", "#E30713", ("магнит", "magnit")),
+    ("rosneft", "svg", "#1A1A1A", ("роснефть", "rosneft")),
+    ("lukoil", "svg", "#EE1C25", ("лукойл", "lukoil")),
+    ("aeroflot", "svg", "#00256C", ("аэрофлот", "aeroflot")),
+    ("rzd", "svg", "#DA4216", ("ржд", "российские железные дороги", "russian railways")),
+    ("kept_kpmg", "svg", "#00338D", ("kept", "кэпт", "kpmg", "кпмг")),
+    ("deloitte", "svg", "#86BC25", ("deloitte", "делойт")),
+    ("pwc", "svg", "#D04A02", ("pwc", "технологии доверия", "pricewaterhousecoopers")),
+    ("ey", "svg", "#FFE600", ("эрнст энд янг", "ernst & young", "б1", "b1")),
+    ("sibur", "svg", "#00A19C", ("сибур", "sibur")),
+    ("cbrf", "svg", "#6D6E71", ("банк россии", "центральный банк", "центробанк", "цб рф")),
+    # Kept last: "газпром" alone would also match the unrelated Газпромбанк/Газпром нефть
+    # subsidiaries, which don't have their own verified logo asset — excluded explicitly below.
+    ("gazprom", "svg", "#0079C1", ("газпром",)),
+]
+
+GAZPROM_SUBSIDIARY_EXCLUSIONS = ("газпромбанк", "газпромнефть", "газпром нефть")
+
+# Real brand color known, but no verified free-licensed logo exists for it (see
+# the COMPANY_LOGOS comment) — e.g. Газпромбанк's own site/brandbook uses this
+# blue, distinct from parent Газпром's. Still worth using instead of the
+# generic per-name hash, even with no image to show.
+BRAND_COLOR_ONLY: list[tuple[str, tuple[str, ...]]] = [
+    ("#0072BC", ("газпромбанк", "gazprombank")),
+]
+
+
+def _match_company(organization: str) -> tuple[str | None, str | None, str]:
+    """Return (logo_slug, logo_ext, brandColor) for an organization.
+
+    logo_slug/logo_ext are None when there's no verified free-licensed logo,
+    even if the real brand color is known (see BRAND_COLOR_ONLY) — falls back
+    to the generic per-name hash color only when neither is known.
+    """
+    normalized = organization.casefold()
+    is_gazprom_subsidiary = any(term in normalized for term in GAZPROM_SUBSIDIARY_EXCLUSIONS)
+
+    if not is_gazprom_subsidiary:
+        for slug, ext, color, aliases in COMPANY_LOGOS:
+            if any(alias in normalized for alias in aliases):
+                return slug, ext, color
+
+    for color, aliases in BRAND_COLOR_ONLY:
+        if any(alias in normalized for alias in aliases):
+            return None, None, color
+
+    return None, None, _brand_color(organization)
+
 _cache: dict[str, Any] = {"expires_at": 0.0, "items": None, "loaded_at": None}
 
 
@@ -151,6 +221,7 @@ def _to_frontend_vacancy(row: dict[str, str], row_number: int) -> dict[str, Any]
     description = _get_value(row, "description") or "Описание появится позже."
     features = _features(_get_value(row, "feature1"), _get_value(row, "feature2"), _get_value(row, "feature3"))
     vacancy_url = _get_value(row, "vacancy_url")
+    logo_slug, logo_ext, brand_color = _match_company(organization)
 
     return {
         "id": f"sheet-{row_number}",
@@ -159,7 +230,8 @@ def _to_frontend_vacancy(row: dict[str, str], row_number: int) -> dict[str, Any]
             "id": f"company-{_stable_index(organization, 100000)}",
             "name": organization,
             "initial": organization[:1].upper() or "K",
-            "brandColor": _brand_color(organization),
+            "brandColor": brand_color,
+            "logoUrl": f"/assets/images/logos/{logo_slug}.{logo_ext}" if logo_slug else None,
             "verified": True,
         },
         "division": division,

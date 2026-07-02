@@ -3,6 +3,13 @@ import { icons } from './icons.js';
 import { badge, escapeHtml, verifiedIcon } from './ui.js';
 
 export function companyLogo(company, size = '') {
+  if (company.logoUrl) {
+    // Explicit width/height (not just CSS) stop the browser from ever laying the
+    // <img> out at its native intrinsic size — or the ~300x150 broken-image
+    // placeholder size — for the instant before/if the real asset loads.
+    const box = size === 'large' ? 76 : 56;
+    return `<span class="company-logo company-logo-image ${size}"><img src="${escapeHtml(company.logoUrl)}" width="${box}" height="${box}" alt="" loading="lazy" /></span>`;
+  }
   return `<span class="company-logo ${size}" style="--brand:${escapeHtml(company.brandColor)}">${escapeHtml(company.initial)}</span>`;
 }
 

@@ -7,6 +7,7 @@
  * @property {string} name
  * @property {string} initial
  * @property {string} brandColor
+ * @property {string} [logoUrl] - real brand logo; falls back to initial+brandColor when absent
  * @property {boolean} verified
  *
  * @typedef {Object} Vacancy

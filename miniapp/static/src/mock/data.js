@@ -7,7 +7,7 @@ export const eventCategories = ['Все', 'Хакатоны', 'Воркшопы'
 export const vacancies = [
   {
     id: 'sber-data-intern',
-    company: { id: 'sber', name: 'Сбер', initial: 'С', brandColor: '#21A33B', verified: true },
+    company: { id: 'sber', name: 'Сбер', initial: 'С', brandColor: '#21A038', logoUrl: '/assets/images/logos/sberbank.svg', verified: true },
     title: 'Аналитик данных (стажёр)',
     salary: 'от 60 000 ₽',
     metro: 'Кутузовская',
@@ -37,7 +37,7 @@ export const vacancies = [
   },
   {
     id: 'tinkoff-product',
-    company: { id: 'tinkoff', name: 'Т-Банк', initial: 'Т', brandColor: '#FFDB4D', verified: true },
+    company: { id: 'tinkoff', name: 'Т-Банк', initial: 'Т', brandColor: '#FFDD2D', logoUrl: '/assets/images/logos/tbank.svg', verified: true },
     title: 'Продуктовый аналитик',
     salary: 'от 75 000 ₽',
     metro: 'Парк культуры',
@@ -67,7 +67,7 @@ export const vacancies = [
   },
   {
     id: 'vtb-financial-analyst',
-    company: { id: 'vtb', name: 'ВТБ Капитал', initial: 'В', brandColor: '#159DD8', verified: true },
+    company: { id: 'vtb', name: 'ВТБ Капитал', initial: 'В', brandColor: '#002882', logoUrl: '/assets/images/logos/vtb.svg', verified: true },
     title: 'Финансовый аналитик',
     salary: 'от 90 000 ₽',
     metro: 'Пресненская',
@@ -97,7 +97,7 @@ export const vacancies = [
   },
   {
     id: 'yandex-frontend-junior',
-    company: { id: 'yandex', name: 'Яндекс', initial: 'Я', brandColor: '#F40909', verified: true },
+    company: { id: 'yandex', name: 'Яндекс', initial: 'Я', brandColor: '#FC3F1D', logoUrl: '/assets/images/logos/yandex.svg', verified: true },
     title: 'Junior Frontend Developer',
     salary: 'от 80 000 ₽',
     metro: 'Удалённо',
@@ -127,7 +127,7 @@ export const vacancies = [
   },
   {
     id: 'x5-marketing-manager',
-    company: { id: 'x5', name: 'X5 Group', initial: 'X', brandColor: '#EC1C24', verified: false },
+    company: { id: 'x5', name: 'X5 Group', initial: 'X', brandColor: '#F37021', logoUrl: '/assets/images/logos/x5group.svg', verified: false },
     title: 'Менеджер по маркетингу',
     salary: 'от 70 000 ₽',
     metro: 'Белорусская',
@@ -157,7 +157,7 @@ export const vacancies = [
   },
   {
     id: 'alfa-risk-analyst',
-    company: { id: 'alfa', name: 'Альфа-Банк', initial: 'А', brandColor: '#EF3124', verified: true },
+    company: { id: 'alfa', name: 'Альфа-Банк', initial: 'А', brandColor: '#EF3124', logoUrl: '/assets/images/logos/alfabank.svg', verified: true },
     title: 'Риск-аналитик (junior)',
     salary: 'от 85 000 ₽',
     metro: 'Комсомольская',
@@ -187,7 +187,7 @@ export const vacancies = [
   },
   {
     id: 'kpmg-consultant',
-    company: { id: 'kpmg', name: 'KEPT', initial: 'К', brandColor: '#00338D', verified: true },
+    company: { id: 'kpmg', name: 'KEPT', initial: 'К', brandColor: '#00338D', logoUrl: '/assets/images/logos/kept_kpmg.svg', verified: true },
     title: 'Младший консультант',
     salary: 'от 80 000 ₽',
     metro: 'Белорусская',
