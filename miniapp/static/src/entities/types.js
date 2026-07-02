@@ -18,7 +18,9 @@
  * @property {string} metroColor
  * @property {WorkFormat} format
  * @property {VacancyKind} kind
- * @property {string} category
+ * @property {string} [sphere]
+ * @property {string[]} [faculties]
+ * @property {string} category - primary faculty (first checked), or sphere/fallback text
  * @property {string} experience
  * @property {string} description
  * @property {string} [fullDescription]

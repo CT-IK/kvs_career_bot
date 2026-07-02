@@ -14,8 +14,9 @@ export async function renderVacancyDetail(id) {
       getVacancies().catch(() => ({ items: [] })),
     ]);
     const formatClass = item.format === 'Гибрид' ? 'blue' : item.format === 'Офис' ? 'green' : 'yellow';
+    const itemFaculties = item.faculties ?? [];
     const related = (all.items || [])
-      .filter((v) => v.id !== item.id && v.category === item.category)
+      .filter((v) => v.id !== item.id && (v.faculties ?? []).some((f) => itemFaculties.includes(f)))
       .slice(0, 2);
 
     return appShell(
@@ -31,7 +32,7 @@ export async function renderVacancyDetail(id) {
         <div class="detail-badges">
           ${badge(item.format, formatClass)}
           ${badge(item.kind, item.kind === 'Стажировка' ? 'red-soft' : '')}
-          ${badge(item.category)}
+          ${(itemFaculties.length ? itemFaculties : [item.category]).map((f) => badge(f)).join('')}
         </div>
 
         <section class="content-section">

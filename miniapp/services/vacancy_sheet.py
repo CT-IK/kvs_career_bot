@@ -32,6 +32,23 @@ HEADER_ALIASES = {
     "vacancy_url": ("Ссылка на вакансию",),
 }
 
+# Same 9 faculty checkbox columns the Telegram bot reads in services/google_sheets.py
+# (FACULTY_SHEET_TO_DB) — sheet header paired with the short label used in the bot's
+# faculty menu (config.py FACULTIES), in that menu's display order.
+FACULTY_COLUMNS = [
+    ("ИТиАБД", "ИТиАБД"),
+    ("ИОО", "ИОО"),
+    ("МЭО", "МЭО"),
+    ("ФЭБ", "ФЭБ"),
+    ("СНиМК", "СНиМК"),
+    ("НАБ", "НАБ"),
+    ("ВШУ", "ВШУ"),
+    ("ФинФак", "ФФ"),
+    ("ЮрФак", "ЮФ"),
+]
+
+FACULTY_CHECKED_VALUES = {"да", "yes", "1", "x", "✓", "true", "т", "+"}
+
 BRAND_COLORS = ["#21A33B", "#159DD8", "#F40909", "#EC1C24", "#6266FF", "#C40016", "#009F62"]
 METRO_COLORS = ["#D0183D", "#1268B3", "#159B55", "#EC7D00", "#7B61FF", "#C40016"]
 
@@ -110,6 +127,14 @@ def _features(*values: str) -> list[str]:
     return [value for value in values if value]
 
 
+def _is_faculty_checked(value: str) -> bool:
+    return value.strip().casefold() in FACULTY_CHECKED_VALUES
+
+
+def _faculties_for_row(row: dict[str, str]) -> list[str]:
+    return [label for header, label in FACULTY_COLUMNS if _is_faculty_checked(row.get(header, ""))]
+
+
 def _to_frontend_vacancy(row: dict[str, str], row_number: int) -> dict[str, Any] | None:
     organization = _get_value(row, "organization")
     title = _get_value(row, "position")
@@ -118,6 +143,7 @@ def _to_frontend_vacancy(row: dict[str, str], row_number: int) -> dict[str, Any]
 
     division = _get_value(row, "division")
     sphere = _get_value(row, "sphere") or "Другое"
+    faculties = _faculties_for_row(row)
     salary = _get_value(row, "salary") or "По договорённости"
     schedule = _get_value(row, "schedule")
     work_format = _get_value(row, "work_format") or "Гибрид"
@@ -143,7 +169,9 @@ def _to_frontend_vacancy(row: dict[str, str], row_number: int) -> dict[str, Any]
         "metroColor": _metro_color(division or schedule or organization),
         "format": work_format,
         "kind": employment_format,
-        "category": sphere,
+        "sphere": sphere,
+        "faculties": faculties,
+        "category": faculties[0] if faculties else "Без факультета",
         "experience": features[0] if features else "Без опыта",
         "description": description,
         "fullDescription": description,
@@ -198,7 +226,7 @@ def filter_vacancies(items: list[dict[str, Any]], query: str = "", category: str
     normalized_category = category.strip()
 
     def matches(item: dict[str, Any]) -> bool:
-        if normalized_category and normalized_category != "Все" and item["category"] != normalized_category:
+        if normalized_category and normalized_category != "Все" and normalized_category not in item.get("faculties", []):
             return False
         if not normalized_query:
             return True
@@ -211,7 +239,8 @@ def filter_vacancies(items: list[dict[str, Any]], query: str = "", category: str
                 item["salary"],
                 item["format"],
                 item["kind"],
-                item["category"],
+                item.get("sphere", ""),
+                *item.get("faculties", []),
                 item["description"],
             ]
         ).casefold()
@@ -221,5 +250,8 @@ def filter_vacancies(items: list[dict[str, Any]], query: str = "", category: str
 
 
 def build_categories(items: list[dict[str, Any]]) -> list[str]:
-    categories = sorted({item["category"] for item in items if item.get("category")})
-    return ["Все", *categories]
+    # Faculty order mirrors the bot's own faculty menu (config.py FACULTIES),
+    # not an alphabetical sort, so the chips line up with what students expect.
+    present = {label for item in items for label in item.get("faculties", [])}
+    ordered = [label for _, label in FACULTY_COLUMNS if label in present]
+    return ["Все", *ordered]

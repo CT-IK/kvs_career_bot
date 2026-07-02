@@ -9,7 +9,7 @@ export function renderJobsLoading() {
     `
     ${topTitle('Вакансии', iconButton('Уведомления', icons.bell, { action: 'notify-placeholder' }))}
     <label class="search-field">${icons.search}<input type="search" placeholder="Поиск стажировок и вакансий" disabled /></label>
-    ${chips(['Все', 'Финансы', 'IT', 'Маркетинг', 'Аналитика'], store.filters.vacancyCategory, 'set-vacancy-category')}
+    ${chips(['Все', 'ИТиАБД', 'ИОО', 'МЭО', 'ФЭБ', 'СНиМК', 'НАБ', 'ВШУ', 'ФФ', 'ЮФ'], store.filters.vacancyCategory, 'set-vacancy-category')}
     ${skeletonList(3)}
     `,
     { nav: true },

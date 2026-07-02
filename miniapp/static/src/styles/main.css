@@ -1324,8 +1324,10 @@ input:focus-visible {
   .bottom-nav { view-transition-name: bottom-nav; }
   .sticky-cta { view-transition-name: sticky-cta; }
 
-  /* Active indicators glide to their new position between renders. */
-  .nav-item.is-active { view-transition-name: nav-active; }
+  /* The underline is the only indicator narrow/local enough to morph safely
+     (it only ever travels between two adjacent tabs on the same screen).
+     Naming the bottom-nav highlight caused it to slide across intermediate
+     tabs when jumping from the first to the last item, flashing them. */
   .profile-tabs button.is-active::after { view-transition-name: tab-underline; }
 }
 

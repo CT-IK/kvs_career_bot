@@ -26,15 +26,25 @@ function normalize(value) {
 }
 
 function matchesCategory(item, category) {
-  return !category || category === 'Все' || item.category === category;
+  if (!category || category === 'Все') return true;
+  // Vacancies can belong to several faculties at once; events keep a single category.
+  return Array.isArray(item.faculties) ? item.faculties.includes(category) : item.category === category;
 }
 
 function matchesQuery(item, query) {
   const q = normalize(query);
   if (!q) return true;
-  return [item.title, item.company?.name, item.salary, item.metro, item.format, item.kind, item.category, item.description].some((v) =>
-    normalize(v).includes(q),
-  );
+  return [
+    item.title,
+    item.company?.name,
+    item.salary,
+    item.metro,
+    item.format,
+    item.kind,
+    item.sphere ?? item.category,
+    ...(item.faculties ?? []),
+    item.description,
+  ].some((v) => normalize(v).includes(q));
 }
 
 async function withMockState(factory) {

@@ -1,4 +1,6 @@
-export const categories = ['Все', 'Финансы', 'IT', 'Маркетинг', 'Аналитика', 'Консалтинг'];
+// Faculty codes, in the same order as the Telegram bot's own faculty menu
+// (config.py FACULTIES) — vacancies are grouped by faculty, not free-text sphere.
+export const categories = ['Все', 'ИТиАБД', 'ИОО', 'МЭО', 'ФЭБ', 'СНиМК', 'НАБ', 'ВШУ', 'ФФ', 'ЮФ'];
 
 export const eventCategories = ['Все', 'Хакатоны', 'Воркшопы', 'Дни карьеры', 'Кейс-чемпионаты'];
 
@@ -12,7 +14,9 @@ export const vacancies = [
     metroColor: '#D0183D',
     format: 'Гибрид',
     kind: 'Стажировка',
-    category: 'Аналитика',
+    sphere: 'Аналитика',
+    faculties: ['ИТиАБД', 'ФЭБ'],
+    category: 'ИТиАБД',
     experience: 'Без опыта',
     description: 'Работа с большими данными, построение дашбордов и аналитических отчётов в команде Data Science.',
     fullDescription:
@@ -40,7 +44,9 @@ export const vacancies = [
     metroColor: '#D0183D',
     format: 'Гибрид',
     kind: 'Стажировка',
-    category: 'Аналитика',
+    sphere: 'Аналитика',
+    faculties: ['ИТиАБД', 'МЭО'],
+    category: 'ИТиАБД',
     experience: 'Без опыта',
     description: 'Анализ продуктовых метрик, A/B-тестирование, работа с воронками и cohort-анализом в суперапп Т-Банка.',
     fullDescription:
@@ -68,7 +74,9 @@ export const vacancies = [
     metroColor: '#1268B3',
     format: 'Офис',
     kind: 'Вакансия',
-    category: 'Финансы',
+    sphere: 'Финансы',
+    faculties: ['ФЭБ', 'НАБ'],
+    category: 'ФЭБ',
     experience: 'От 1 года',
     description: 'Подготовка финансовых моделей, анализ инвестиционных проектов, участие в сделках M&A.',
     fullDescription:
@@ -96,7 +104,9 @@ export const vacancies = [
     metroColor: '#F40909',
     format: 'Удалёнка',
     kind: 'Стажировка',
-    category: 'IT',
+    sphere: 'IT',
+    faculties: ['ИТиАБД'],
+    category: 'ИТиАБД',
     experience: 'Без опыта',
     description: 'Разработка веб-интерфейсов на React, участие в продуктовых командах, код-ревью с менторами.',
     fullDescription:
@@ -124,7 +134,9 @@ export const vacancies = [
     metroColor: '#159B55',
     format: 'Гибрид',
     kind: 'Вакансия',
-    category: 'Маркетинг',
+    sphere: 'Маркетинг',
+    faculties: ['МЭО', 'ИОО'],
+    category: 'МЭО',
     experience: 'От 6 мес.',
     description: 'Разработка маркетинговых стратегий, управление рекламными кампаниями и аналитика результатов.',
     fullDescription:
@@ -152,7 +164,9 @@ export const vacancies = [
     metroColor: '#D0183D',
     format: 'Офис',
     kind: 'Вакансия',
-    category: 'Финансы',
+    sphere: 'Финансы',
+    faculties: ['ФЭБ', 'НАБ'],
+    category: 'ФЭБ',
     experience: 'Без опыта',
     description: 'Оценка кредитных и рыночных рисков, работа с регуляторной отчётностью и моделями оценки.',
     fullDescription:
@@ -180,7 +194,9 @@ export const vacancies = [
     metroColor: '#159B55',
     format: 'Гибрид',
     kind: 'Вакансия',
-    category: 'Консалтинг',
+    sphere: 'Консалтинг',
+    faculties: ['ФЭБ', 'СНиМК', 'ЮФ'],
+    category: 'ФЭБ',
     experience: 'Без опыта',
     description: 'Участие в проектах аудита и консалтинга для крупных корпоративных клиентов.',
     fullDescription:
