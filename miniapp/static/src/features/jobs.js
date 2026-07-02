@@ -1,7 +1,7 @@
 import { store } from '../app/store.js';
 import { vacancyCard } from '../components/cards.js';
 import { icons } from '../components/icons.js';
-import { appShell, chips, emptyState, errorState, escapeHtml, iconButton, skeletonList, topTitle } from '../components/ui.js';
+import { appShell, button, chips, emptyState, errorState, escapeHtml, iconButton, skeletonList, topTitle } from '../components/ui.js';
 import { getVacancies } from '../services/api.js';
 
 export function renderJobsLoading() {
@@ -9,7 +9,7 @@ export function renderJobsLoading() {
     `
     ${topTitle('Вакансии', iconButton('Уведомления', icons.bell, { action: 'notify-placeholder' }))}
     <label class="search-field">${icons.search}<input type="search" placeholder="Поиск стажировок и вакансий" disabled /></label>
-    ${chips(['Все', 'Финансы', 'IT', 'Маркетинг', 'Аналитика'], 'Все', 'set-vacancy-category')}
+    ${chips(['Все', 'Финансы', 'IT', 'Маркетинг', 'Аналитика'], store.filters.vacancyCategory, 'set-vacancy-category')}
     ${skeletonList(3)}
     `,
     { nav: true },
@@ -23,9 +23,15 @@ export async function renderJobs() {
       category: store.filters.vacancyCategory,
     });
 
+    const hasFilters = Boolean(store.filters.vacancyQuery) || store.filters.vacancyCategory !== 'Все';
     const list = data.items.length
       ? `<section class="list-stack">${data.items.map((item, i) => vacancyCard(item, { index: i })).join('')}</section>`
-      : emptyState('Вакансий не найдено', 'Попробуй изменить поиск или выбрать другую категорию.', icons.search);
+      : emptyState(
+          'Вакансий не найдено',
+          'Попробуй изменить поиск или выбрать другую категорию.',
+          icons.search,
+          hasFilters ? button('Сбросить фильтры', { variant: 'dark', action: 'reset-vacancy-filters', icon: '' }) : '',
+        );
 
     return appShell(
       `

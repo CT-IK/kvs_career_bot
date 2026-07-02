@@ -7,14 +7,22 @@
   --color-surface: #ffffff;
   --color-surface-muted: #ededed;
   --color-text: #292927;
+  --color-body: #4a4a48;
   --color-muted: #777586;
   --color-soft: #afafaf;
+  --color-ink: #252522;
   --color-primary: #c40016;
   --color-primary-dark: #a90012;
   --color-primary-soft: #fcebed;
   --color-success: #009f62;
   --color-blue: #246bfe;
   --color-divider: #dedede;
+  --color-hover: #e3e3e3;
+  --color-input-focus: #e6e6e6;
+  --color-skeleton-a: #ebebeb;
+  --color-skeleton-b: #f5f5f5;
+  --color-surface-translucent: rgba(255, 255, 255, 0.96);
+  --color-ring-soft: rgba(196, 0, 22, 0.3);
 
   /* Shadows */
   --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.08);
@@ -28,8 +36,51 @@
   font-family: Inter, "SF Pro Display", "Segoe UI", Arial, sans-serif;
 }
 
+/* ─── Dark theme (driven by Telegram colorScheme, see main.js) ─── */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-bg: #121214;
+  --color-surface: #1c1c1e;
+  --color-surface-muted: #2a2a2d;
+  --color-text: #f2f2f0;
+  --color-body: #d4d4d8;
+  --color-muted: #9c9ba6;
+  --color-soft: #6f6f76;
+  --color-ink: #2f2f33;
+  --color-primary: #ff5266;
+  --color-primary-dark: #e63950;
+  --color-primary-soft: rgba(255, 82, 102, 0.16);
+  --color-success: #2fd88a;
+  --color-blue: #6a92ff;
+  --color-divider: #333336;
+  --color-hover: #333336;
+  --color-input-focus: #333336;
+  --color-skeleton-a: #2a2a2d;
+  --color-skeleton-b: #333336;
+  --color-surface-translucent: rgba(28, 28, 30, 0.92);
+  --color-ring-soft: rgba(255, 82, 102, 0.35);
+
+  --shadow-card: 0 2px 10px rgba(0, 0, 0, 0.4);
+  --shadow-float: 0 10px 28px rgba(0, 0, 0, 0.55);
+}
+
 /* ─── Reset ───────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 html {
   min-height: 100%;
@@ -134,7 +185,7 @@ svg {
 .btn svg { width: 22px; height: 22px; }
 
 .btn-primary { background: var(--color-primary); color: #fff; }
-.btn-dark    { background: #252522;              color: #fff; }
+.btn-dark    { background: var(--color-ink);     color: #fff; }
 .btn-ghost   { background: transparent;          color: var(--color-soft); }
 
 .btn:disabled,
@@ -335,8 +386,12 @@ svg {
 .progress-callout,
 .login-card {
   background: var(--color-surface);
-  border: 1px solid rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--color-card-border, rgba(0, 0, 0, 0.04));
   box-shadow: var(--shadow-card);
+}
+
+:root[data-theme="dark"] {
+  --color-card-border: rgba(255, 255, 255, 0.06);
 }
 
 /* ─── Vacancy card ────────────────────────────────────────────── */
@@ -480,6 +535,10 @@ svg {
 .badge.yellow    { background: #fff5de; color: #df8700; }
 .badge.red-soft  { background: var(--color-primary-soft); color: var(--color-primary); font-weight: 700; }
 
+:root[data-theme="dark"] .badge.blue   { background: rgba(106, 146, 255, 0.16); color: #a9bfff; }
+:root[data-theme="dark"] .badge.green  { background: rgba(47, 216, 138, 0.16); color: var(--color-success); }
+:root[data-theme="dark"] .badge.yellow { background: rgba(223, 135, 0, 0.18); color: #f2b84d; }
+
 .card-copy {
   margin: 18px 0 0;
   color: var(--color-muted);
@@ -600,13 +659,14 @@ svg {
   gap: 2px;
   margin: 0 auto;
   border-top: 1px solid var(--color-divider);
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--color-surface-translucent);
   padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
 }
 
 .nav-item {
+  position: relative;
   display: grid;
   min-height: 58px;
   place-items: center;
@@ -688,7 +748,7 @@ svg {
   height: 82px;
   place-items: center;
   border-radius: 22px;
-  background: #252522;
+  background: var(--color-ink);
   color: #fff;
 }
 
@@ -726,7 +786,7 @@ svg {
 }
 
 .content-section p,
-.content-section li { color: #4a4a48; font-size: 21px; line-height: 1.5; }
+.content-section li { color: var(--color-body); font-size: 21px; line-height: 1.5; }
 
 .icon-section {
   display: grid;
@@ -779,7 +839,7 @@ svg {
 .red-list li::marker { color: var(--color-primary); }
 
 .timeline-item li,
-.red-list li { font-size: 20px; line-height: 1.48; color: #4a4a48; }
+.red-list li { font-size: 20px; line-height: 1.48; color: var(--color-body); }
 
 /* ─── Progress callout ────────────────────────────────────────── */
 .progress-callout {
@@ -1040,7 +1100,7 @@ svg {
   transition: background-color var(--dur-fast) var(--ease);
 }
 
-.form-card input:focus { background: #e6e6e6; }
+.form-card input:focus { background: var(--color-input-focus); }
 
 .form-grid {
   display: grid;
@@ -1062,6 +1122,7 @@ svg {
 }
 
 .back-floating,
+.share-floating,
 .plain-back {
   position: absolute;
   top: calc(46px + env(safe-area-inset-top));
@@ -1076,6 +1137,15 @@ svg {
   position: fixed;
   background: var(--color-primary);
   backdrop-filter: none;
+}
+
+.share-floating {
+  right: 16px;
+  left: auto;
+}
+
+.detail-loading {
+  padding: calc(96px + env(safe-area-inset-top)) 16px 24px;
 }
 
 .detail-content {
@@ -1121,7 +1191,7 @@ svg {
 }
 
 .offer-panel .red-list { list-style: none; padding: 0; gap: 10px; }
-.offer-panel .red-list li { display: flex; align-items: flex-start; gap: 10px; font-size: 19px; color: #3a3a38; }
+.offer-panel .red-list li { display: flex; align-items: flex-start; gap: 10px; font-size: 19px; color: var(--color-body); }
 .offer-panel .red-list li::before { content: "✓"; color: var(--color-primary); font-weight: 900; flex-shrink: 0; }
 
 .detail-meta-row {
@@ -1144,7 +1214,7 @@ svg {
   width: min(100%, 430px);
   margin: 0 auto;
   border-top: 1px solid var(--color-divider);
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--color-surface-translucent);
   padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -1193,7 +1263,7 @@ svg {
   display: block;
   overflow: hidden;
   border-radius: 999px;
-  background: linear-gradient(90deg, #ebebeb, #f5f5f5, #ebebeb);
+  background: linear-gradient(90deg, var(--color-skeleton-a), var(--color-skeleton-b), var(--color-skeleton-a));
   background-size: 220% 100%;
   animation: shimmer 1.2s linear infinite;
 }
@@ -1205,7 +1275,7 @@ svg {
 /* ─── Focus styles ────────────────────────────────────────────── */
 button:focus-visible,
 input:focus-visible {
-  outline: 3px solid rgba(196, 0, 22, 0.3);
+  outline: 3px solid var(--color-ring-soft);
   outline-offset: 3px;
 }
 
@@ -1237,11 +1307,158 @@ input:focus-visible {
 @media (hover: hover) {
   .btn:hover           { filter: brightness(1.04); }
   .btn-ghost:hover     { color: var(--color-text); background: var(--color-surface-muted); }
-  .chip:hover:not(.is-active)  { background: #e3e3e3; }
-  .icon-btn:hover      { background: #e3e3e3; }
+  .chip:hover:not(.is-active)  { background: var(--color-hover); }
+  .icon-btn:hover      { background: var(--color-hover); }
   .nav-item:hover      { background: var(--color-surface-muted); }
   .heart-btn:hover     { color: var(--color-primary); }
 }
+
+/* ─── View transitions (screen navigation) ────────────────────── */
+@supports (view-transition-name: none) {
+  /* View transitions drive screen motion; the fallback fade would double it. */
+  .screen,
+  .onboarding-screen,
+  .detail-screen { animation: none; }
+
+  /* Fixed chrome stays put while the page content slides underneath. */
+  .bottom-nav { view-transition-name: bottom-nav; }
+  .sticky-cta { view-transition-name: sticky-cta; }
+
+  /* Active indicators glide to their new position between renders. */
+  .nav-item.is-active { view-transition-name: nav-active; }
+  .profile-tabs button.is-active::after { view-transition-name: tab-underline; }
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 300ms;
+  animation-timing-function: var(--ease);
+}
+
+/* Push: new screen slides in from the right over the parallaxing old one */
+html[data-nav="push"]::view-transition-old(root) { animation-name: vt-out-left; }
+html[data-nav="push"]::view-transition-new(root) { animation-name: vt-in-right; z-index: 2; }
+
+/* Pop: old screen slides away to the right, revealing the previous one */
+html[data-nav="pop"]::view-transition-old(root) { animation-name: vt-out-right; z-index: 2; }
+html[data-nav="pop"]::view-transition-new(root) { animation-name: vt-in-left; }
+
+/* Tab switches: light lateral slide following the tab order */
+html[data-nav="tab-forward"]::view-transition-old(root) { animation-name: vt-fade-out-left; }
+html[data-nav="tab-forward"]::view-transition-new(root) { animation-name: vt-fade-in-right; }
+html[data-nav="tab-back"]::view-transition-old(root)    { animation-name: vt-fade-out-right; }
+html[data-nav="tab-back"]::view-transition-new(root)    { animation-name: vt-fade-in-left; }
+
+/* Bottom nav rises when it (re)appears — e.g. returning from a detail screen */
+::view-transition-new(bottom-nav):only-child { animation: vt-rise 340ms var(--ease) both; }
+
+@keyframes vt-in-right  { from { transform: translateX(100%); } }
+@keyframes vt-out-left  { to   { transform: translateX(-24%); opacity: 0.4; } }
+@keyframes vt-in-left   { from { transform: translateX(-24%); opacity: 0.4; } }
+@keyframes vt-out-right { to   { transform: translateX(100%); } }
+
+@keyframes vt-fade-in-right  { from { transform: translateX(44px); opacity: 0; } }
+@keyframes vt-fade-out-left  { to   { transform: translateX(-44px); opacity: 0; } }
+@keyframes vt-fade-in-left   { from { transform: translateX(-44px); opacity: 0; } }
+@keyframes vt-fade-out-right { to   { transform: translateX(44px); opacity: 0; } }
+
+@keyframes vt-rise { from { transform: translateY(100%); opacity: 0; } }
+
+/* ─── Sticky CTA entrance ─────────────────────────────────────── */
+.sticky-cta { animation: vt-rise 320ms var(--ease) both; }
+
+/* ─── Toast ───────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: calc(94px + env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: min(88vw, 360px);
+  border-radius: 999px;
+  background: var(--color-ink);
+  color: #fff;
+  padding: 13px 22px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: var(--shadow-float);
+  opacity: 0;
+  transform: translate(-50%, 14px) scale(0.96);
+  transition: opacity var(--dur-mid) var(--ease), transform var(--dur-mid) var(--ease);
+  pointer-events: none;
+}
+
+.toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.toast svg { width: 18px; height: 18px; color: #ff7787; }
+
+/* ─── Nav favorites badge ─────────────────────────────────────── */
+.nav-badge {
+  position: absolute;
+  top: 5px;
+  left: calc(50% + 5px);
+  display: grid;
+  min-width: 19px;
+  height: 19px;
+  place-items: center;
+  border-radius: 999px;
+  border: 2px solid var(--color-surface);
+  background: var(--color-primary);
+  color: #fff;
+  padding: 0 5px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* ─── Heart pop ───────────────────────────────────────────────── */
+.heart-btn.heart-pop svg { animation: heart-pop 380ms var(--ease); }
+
+@keyframes heart-pop {
+  0%   { transform: scale(0.6); }
+  45%  { transform: scale(1.3); }
+  70%  { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+
+/* ─── Card press feedback ─────────────────────────────────────── */
+.vacancy-card { transition: transform var(--dur-fast) var(--ease); }
+.vacancy-card:has(> .card-hit:active) { transform: scale(0.982); }
+
+/* ─── Related vacancies (detail screen) ───────────────────────── */
+.related-section {
+  margin-top: 12px;
+  text-align: left;
+}
+
+.related-section h2 {
+  margin: 0 0 14px;
+  font-size: 23px;
+  font-weight: 800;
+}
+
+/* ─── Empty state actions ─────────────────────────────────────── */
+.state-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+/* ─── Onboarding stagger ──────────────────────────────────────── */
+.welcome-card { animation: card-in 320ms var(--ease) both; }
+.benefits article { animation: card-in 320ms var(--ease) both; }
+.benefits article:nth-child(1) { animation-delay: 80ms; }
+.benefits article:nth-child(2) { animation-delay: 150ms; }
+.benefits article:nth-child(3) { animation-delay: 220ms; }
+.onboarding-actions { animation: card-in 320ms var(--ease) both; animation-delay: 290ms; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -1249,5 +1466,11 @@ input:focus-visible {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
 }

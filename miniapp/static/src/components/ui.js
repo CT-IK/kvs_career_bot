@@ -1,3 +1,4 @@
+import { store } from '../app/store.js';
 import { icons } from './icons.js';
 
 export function escapeHtml(value) {
@@ -27,8 +28,8 @@ export function button(label, { variant = 'primary', action = '', route = '', ur
   return `<button class="btn btn-${variant}" type="button" ${dataAttrs}><span>${escapeHtml(label)}</span>${icon || ''}</button>`;
 }
 
-export function iconButton(label, icon, { action = '', route = '', className = '' } = {}) {
-  return `<button class="icon-btn ${className}" type="button" aria-label="${escapeHtml(label)}" data-action="${escapeHtml(action)}" data-route="${escapeHtml(route)}">${icon}</button>`;
+export function iconButton(label, icon, { action = '', route = '', url = '', className = '' } = {}) {
+  return `<button class="icon-btn ${className}" type="button" aria-label="${escapeHtml(label)}" data-action="${escapeHtml(action)}" data-route="${escapeHtml(route)}"${url ? ` data-url="${escapeHtml(url)}"` : ''}>${icon}</button>`;
 }
 
 export function topTitle(title, right = '') {
@@ -38,27 +39,31 @@ export function topTitle(title, right = '') {
 export function bottomNav() {
   const hash = window.location.hash;
   const active = hash.includes('/events') ? 'events' : hash.includes('/profile') ? 'profile' : 'vacancies';
+  const favCount = store.favorites.size;
 
-  const item = (id, label, icon, route) => `
+  const item = (id, label, icon, route, extra = '') => `
     <button class="nav-item ${active === id ? 'is-active' : ''}" type="button" data-action="navigate" data-route="${route}" aria-label="${escapeHtml(label)}">
-      ${icon}<span>${escapeHtml(label)}</span>
+      ${icon}<span>${escapeHtml(label)}</span>${extra}
     </button>`;
 
   return `
     <nav class="bottom-nav" aria-label="Основная навигация">
       ${item('vacancies', 'Вакансии', icons.briefcase, '/vacancies')}
       ${item('events', 'События', icons.calendar, '/events')}
-      ${item('profile', 'Профиль', icons.user, '/profile')}
+      ${item('profile', 'Профиль', icons.user, '/profile', `<i class="nav-badge" data-favorites-count ${favCount ? '' : 'hidden'}>${favCount}</i>`)}
     </nav>`;
 }
 
 export function chips(items, active, action) {
+  // A unique view-transition-name per screen lets the active pill glide
+  // between chips without pairing across different screens.
+  const scope = action.includes('event') ? 'event' : 'vacancy';
   return `
     <div class="chips" role="tablist">
       ${items
         .map(
           (item) =>
-            `<button class="chip ${item === active ? 'is-active' : ''}" type="button" role="tab" aria-selected="${item === active}" data-action="${escapeHtml(action)}" data-value="${escapeHtml(item)}">${escapeHtml(item)}</button>`,
+            `<button class="chip ${item === active ? 'is-active' : ''}" type="button" role="tab" aria-selected="${item === active}"${item === active ? ` style="view-transition-name:chip-${scope}"` : ''} data-action="${escapeHtml(action)}" data-value="${escapeHtml(item)}">${escapeHtml(item)}</button>`,
         )
         .join('')}
     </div>`;
@@ -68,8 +73,8 @@ export function skeletonList(count = 3) {
   return `<section class="list-stack" aria-busy="true" aria-label="Загрузка">${Array.from({ length: count }, () => `<article class="skeleton-card"><i></i><span></span><span style="width:72%"></span><b></b></article>`).join('')}</section>`;
 }
 
-export function emptyState(title, text, icon = '') {
-  return `<section class="state-card">${icon ? `<span class="state-icon">${icon}</span>` : ''}<strong>${escapeHtml(title)}</strong><p>${escapeHtml(text)}</p></section>`;
+export function emptyState(title, text, icon = '', extra = '') {
+  return `<section class="state-card">${icon ? `<span class="state-icon">${icon}</span>` : ''}<strong>${escapeHtml(title)}</strong><p>${escapeHtml(text)}</p>${extra ? `<div class="state-actions">${extra}</div>` : ''}</section>`;
 }
 
 export function errorState(text = 'Не удалось загрузить данные. Попробуйте обновить экран.') {

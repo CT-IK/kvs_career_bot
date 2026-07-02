@@ -1,21 +1,28 @@
-import { companyLogo } from '../components/cards.js';
+import { companyLogo, vacancyCard } from '../components/cards.js';
 import { icons } from '../components/icons.js';
 import { appShell, badge, escapeHtml, errorState, iconButton, skeletonList } from '../components/ui.js';
-import { getVacancy } from '../services/api.js';
+import { getVacancies, getVacancy } from '../services/api.js';
 
 export function renderVacancyDetailLoading() {
-  return appShell(skeletonList(1), { className: 'detail-screen' });
+  return appShell(`<div class="detail-loading">${skeletonList(1)}</div>`, { className: 'detail-screen' });
 }
 
 export async function renderVacancyDetail(id) {
   try {
-    const item = await getVacancy(id);
+    const [item, all] = await Promise.all([
+      getVacancy(id),
+      getVacancies().catch(() => ({ items: [] })),
+    ]);
     const formatClass = item.format === 'Гибрид' ? 'blue' : item.format === 'Офис' ? 'green' : 'yellow';
+    const related = (all.items || [])
+      .filter((v) => v.id !== item.id && v.category === item.category)
+      .slice(0, 2);
 
     return appShell(
       `
       <section class="detail-cover" style="--brand:${escapeHtml(item.company.brandColor)}">
         ${iconButton('Назад', icons.back, { action: 'back', className: 'back-floating' })}
+        ${iconButton('Поделиться вакансией', icons.share, { action: 'share-vacancy', url: item.applyUrl, className: 'share-floating' })}
       </section>
       <article class="detail-content">
         <div class="detail-logo-wrap">${companyLogo(item.company, 'large')}</div>
@@ -47,6 +54,12 @@ export async function renderVacancyDetail(id) {
           <span class="metro" style="--metro:${escapeHtml(item.metroColor)}">${escapeHtml(item.metro)}</span>
           <strong class="detail-salary">${escapeHtml(item.salary)}</strong>
         </section>
+
+        ${related.length ? `
+        <section class="related-section" aria-label="Похожие вакансии">
+          <h2>Похожие вакансии</h2>
+          <div class="list-stack">${related.map((v, i) => vacancyCard(v, { compact: true, index: i })).join('')}</div>
+        </section>` : ''}
       </article>
 
       <footer class="sticky-cta">

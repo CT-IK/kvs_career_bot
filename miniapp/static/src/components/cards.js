@@ -33,7 +33,7 @@ export function vacancyCard(vacancy, { compact = false, index = 0 } = {}) {
         ${badge(vacancy.experience)}
         <button class="btn btn-primary btn-small" type="button" data-action="apply" data-url="${escapeHtml(vacancy.applyUrl)}">Откликнуться</button>
       </div>
-      <button class="card-hit" type="button" data-action="navigate" data-route="/vacancies/${escapeHtml(vacancy.id)}" aria-hidden="true" tabindex="-1"></button>
+      <button class="card-hit" type="button" data-action="navigate" data-route="/vacancies/${escapeHtml(vacancy.id)}" aria-label="Открыть вакансию: ${escapeHtml(vacancy.title)}, ${escapeHtml(vacancy.company.name)}"></button>
     </article>`;
 }
 

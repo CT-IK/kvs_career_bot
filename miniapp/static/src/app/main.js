@@ -9,6 +9,7 @@ import {
   submitProfileEmail,
   toggleFavorite,
 } from './store.js';
+import { icons } from '../components/icons.js';
 import { renderEvents, renderEventsLoading } from '../features/events.js';
 import { renderJobs, renderJobsLoading } from '../features/jobs.js';
 import { renderOnboarding, startOnboarding } from '../features/onboarding.js';
@@ -17,14 +18,134 @@ import { renderVacancyDetail, renderVacancyDetailLoading } from '../features/vac
 
 const app = document.querySelector('#app');
 const tg = window.Telegram?.WebApp;
+// Outside the real Telegram client the SDK still injects a stub WebApp object
+// whose colorScheme is hardcoded to 'light', so `initData` is the only reliable
+// signal that we're actually embedded and should trust tg.colorScheme.
+const isEmbedded = Boolean(tg?.initData);
 
 tg?.ready();
 tg?.expand();
-tg?.setHeaderColor?.('#ffffff');
-tg?.setBackgroundColor?.('#f2f2f2');
+tg?.disableVerticalSwipes?.();
+
+const THEME_COLORS = {
+  light: { header: '#ffffff', bg: '#f2f2f2' },
+  dark: { header: '#1c1c1e', bg: '#121214' },
+};
+
+function applyTheme(scheme) {
+  const theme = scheme === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLORS[theme].header);
+  tg?.setHeaderColor?.(THEME_COLORS[theme].header);
+  tg?.setBackgroundColor?.(THEME_COLORS[theme].bg);
+}
+
+function resolveScheme() {
+  if (isEmbedded) return tg.colorScheme === 'dark' ? 'dark' : 'light';
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+applyTheme(resolveScheme());
+if (isEmbedded) {
+  tg.onEvent?.('themeChanged', () => applyTheme(resolveScheme()));
+} else {
+  window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme(resolveScheme()));
+}
 
 function haptic(type = 'light') {
   tg?.HapticFeedback?.impactOccurred(type);
+}
+
+/* ─── Navigation direction & view transitions ─────────────────── */
+// Route "depth": deeper routes slide in (push), shallower slide out (pop),
+// same-level tab switches slide sideways following the tab order.
+const ROUTE_LEVELS = { onboarding: 0, vacancies: 1, events: 1, profile: 1, 'profile-edit': 2, 'vacancy-detail': 2 };
+const TAB_ORDER = { vacancies: 0, events: 1, profile: 2 };
+const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+const scrollMemory = new Map();
+let prevRoute = null;
+
+function routeKey(route) {
+  const query = route.params.toString();
+  return query ? `${route.path}?${query}` : route.path;
+}
+
+function directionFor(prev, next) {
+  if (!prev) return 'fade';
+  const from = ROUTE_LEVELS[prev.name] ?? 1;
+  const to = ROUTE_LEVELS[next.name] ?? 1;
+  if (to > from) return 'push';
+  if (to < from) return 'pop';
+  const a = TAB_ORDER[prev.name];
+  const b = TAB_ORDER[next.name];
+  if (a !== undefined && b !== undefined && a !== b) return b > a ? 'tab-forward' : 'tab-back';
+  return 'fade';
+}
+
+function swapView(html, direction, scrollTop = null) {
+  const apply = () => {
+    app.innerHTML = html;
+    bindInputs();
+    if (scrollTop !== null) window.scrollTo({ top: scrollTop, behavior: 'instant' });
+  };
+
+  if (reduceMotion?.matches || !document.startViewTransition) {
+    apply();
+    return;
+  }
+
+  document.documentElement.dataset.nav = direction;
+  const transition = document.startViewTransition(apply);
+  transition.finished.finally(() => {
+    if (document.documentElement.dataset.nav === direction) delete document.documentElement.dataset.nav;
+  });
+}
+
+/* ─── Telegram native back button on nested screens ───────────── */
+function goBack() {
+  if (window.history.length > 1) {
+    window.history.back();
+  } else {
+    navigate('/vacancies');
+  }
+}
+
+if (isEmbedded && tg.BackButton) tg.BackButton.onClick(goBack);
+
+function syncBackButton(route) {
+  if (!isEmbedded || !tg.BackButton) return;
+  if ((ROUTE_LEVELS[route.name] ?? 1) > 1) {
+    tg.BackButton.show();
+  } else {
+    tg.BackButton.hide();
+  }
+}
+
+/* ─── Toast ───────────────────────────────────────────────────── */
+let toastTimer = 0;
+
+function showToast(message, icon = '') {
+  document.querySelector('.toast')?.remove();
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.setAttribute('role', 'status');
+  el.innerHTML = `${icon}<span></span>`;
+  el.querySelector('span').textContent = message;
+  document.body.append(el);
+  requestAnimationFrame(() => el.classList.add('is-visible'));
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => {
+    el.classList.remove('is-visible');
+    window.setTimeout(() => el.remove(), 320);
+  }, 2100);
+}
+
+function updateFavoriteCounters() {
+  const count = store.favorites.size;
+  document.querySelectorAll('[data-favorites-count]').forEach((el) => {
+    el.textContent = count;
+    el.hidden = count === 0;
+  });
 }
 
 function loadingFor(route) {
@@ -43,15 +164,46 @@ async function viewFor(route) {
   return renderJobs();
 }
 
-async function render() {
+async function render({ silent = false, transition = null } = {}) {
   const route = parseRoute();
+  const key = routeKey(route);
+  const prev = prevRoute;
+  const direction = transition ?? directionFor(prev, route);
   setRoute(route);
-  app.innerHTML = loadingFor(route);
-  window.scrollTo({ top: 0, behavior: 'instant' });
+  prevRoute = { name: route.name, key };
+  syncBackButton(route);
+
+  const focused = document.activeElement;
+  const focusedId = focused?.id;
+  const selStart = focused?.selectionStart;
+  const selEnd = focused?.selectionEnd;
+
+  let scrollTarget = 0;
+  if (!silent) {
+    if (prev && prev.key !== key) scrollMemory.set(prev.key, window.scrollY);
+    scrollTarget = direction === 'pop' ? scrollMemory.get(key) ?? 0 : 0;
+    swapView(loadingFor(route), direction, scrollTarget);
+  }
+
   const html = await viewFor(route);
-  if (store.route === route) {
-    app.innerHTML = html;
-    bindInputs();
+  if (store.route !== route) return;
+
+  app.innerHTML = html;
+  bindInputs();
+  if (!silent) window.scrollTo({ top: scrollTarget, behavior: 'instant' });
+
+  if (silent && focusedId) {
+    const el = document.getElementById(focusedId);
+    if (el) {
+      el.focus({ preventScroll: true });
+      if (typeof selStart === 'number' && el.setSelectionRange) {
+        try {
+          el.setSelectionRange(selStart, selEnd);
+        } catch {
+          /* not a text-selectable input, ignore */
+        }
+      }
+    }
   }
 }
 
@@ -61,7 +213,7 @@ function bindInputs() {
     search.addEventListener('input', (e) => {
       store.filters.vacancyQuery = e.target.value;
       window.clearTimeout(search._timer);
-      search._timer = window.setTimeout(render, 220);
+      search._timer = window.setTimeout(() => render({ silent: true }), 220);
     });
   }
 }
@@ -76,6 +228,20 @@ function openExternal(url) {
   }
 }
 
+function shareVacancy(url) {
+  if (!url) return;
+  const title = document.querySelector('.detail-content h1')?.textContent?.trim() || 'Вакансия';
+  const text = `${title} — нашёл в KVS Job`;
+
+  if (isEmbedded && tg.openTelegramLink) {
+    tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`);
+  } else if (navigator.share) {
+    navigator.share({ title, text, url }).catch(() => {});
+  } else if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(url).then(() => showToast('Ссылка скопирована', icons.link)).catch(() => {});
+  }
+}
+
 document.addEventListener('click', (e) => {
   const target = e.target.closest('[data-action]');
   if (!target) return;
@@ -84,9 +250,10 @@ document.addEventListener('click', (e) => {
   haptic();
 
   if (action === 'navigate') navigate(target.dataset.route);
-  if (action === 'back') window.history.length > 1 ? window.history.back() : navigate('/vacancies');
+  if (action === 'back') goBack();
   if (action === 'start-onboarding') startOnboarding(navigate);
   if (action === 'open-link' || action === 'apply') openExternal(target.dataset.url);
+  if (action === 'share-vacancy') shareVacancy(target.dataset.url);
   if (action === 'notify-placeholder') tg?.showAlert?.('Уведомления появятся после подключения backend.');
   if (action === 'save-profile-step') tg?.showAlert?.('Шаг сохранён. Продолжай заполнять резюме!');
 
@@ -97,10 +264,9 @@ document.addEventListener('click', (e) => {
 
   if (action === 'submit-profile-email') {
     const email = document.querySelector('#profileEmail')?.value;
-    if (!submitProfileEmail(email)) {
-      tg?.HapticFeedback?.notificationOccurred?.('error');
-    }
-    render();
+    const ok = submitProfileEmail(email);
+    if (!ok) tg?.HapticFeedback?.notificationOccurred?.('error');
+    render().then(() => { if (!ok) document.querySelector('#profileEmail')?.focus(); });
   }
 
   if (action === 'logout-profile') {
@@ -119,7 +285,7 @@ document.addEventListener('click', (e) => {
       email: document.querySelector('#adminDeveloperEmail')?.value,
     });
     if (!ok) tg?.HapticFeedback?.notificationOccurred?.('error');
-    render();
+    render().then(() => { if (!ok) document.querySelector('#adminDeveloperName')?.focus(); });
   }
 
   if (action === 'add-admin-place') {
@@ -128,7 +294,7 @@ document.addEventListener('click', (e) => {
       address: document.querySelector('#adminPlaceAddress')?.value,
     });
     if (!ok) tg?.HapticFeedback?.notificationOccurred?.('error');
-    render();
+    render().then(() => { if (!ok) document.querySelector('#adminPlaceTitle')?.focus(); });
   }
 
   if (action === 'set-vacancy-category') {
@@ -141,12 +307,34 @@ document.addEventListener('click', (e) => {
     render();
   }
 
+  if (action === 'reset-vacancy-filters') {
+    store.filters.vacancyQuery = '';
+    store.filters.vacancyCategory = 'Все';
+    render();
+  }
+
   if (action === 'toggle-favorite') {
     e.preventDefault();
     e.stopPropagation();
-    toggleFavorite(target.dataset.id);
-    haptic('medium');
-    render();
+    const id = target.dataset.id;
+    toggleFavorite(id);
+    const active = store.favorites.has(id);
+    tg?.HapticFeedback?.notificationOccurred?.(active ? 'success' : 'warning');
+
+    // Update hearts in place so the pop animation plays instead of a full re-render.
+    document.querySelectorAll('.heart-btn').forEach((btn) => {
+      if (btn.dataset.id !== id) return;
+      btn.classList.toggle('is-active', active);
+      btn.innerHTML = active ? icons.heart : icons.heartOutline;
+      btn.setAttribute('aria-label', active ? 'Убрать из избранного' : 'Добавить в избранное');
+      btn.classList.remove('heart-pop');
+      void btn.offsetWidth;
+      btn.classList.add('heart-pop');
+    });
+    updateFavoriteCounters();
+    showToast(active ? 'Добавлено в избранное' : 'Убрано из избранного', active ? icons.heart : icons.heartOutline);
+
+    if (store.route?.name === 'profile' && store.profileTab === 'favorites') render({ silent: true });
   }
 
   if (action === 'profile-tab') {
@@ -155,5 +343,5 @@ document.addEventListener('click', (e) => {
   }
 });
 
-window.addEventListener('hashchange', render);
+window.addEventListener('hashchange', () => render());
 render();

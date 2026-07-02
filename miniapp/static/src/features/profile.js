@@ -11,7 +11,7 @@ function tabs() {
     <div class="profile-tabs" role="tablist">
       <button class="${store.profileTab === 'resume' ? 'is-active' : ''}" type="button" role="tab" aria-selected="${store.profileTab === 'resume'}" data-action="profile-tab" data-value="resume">Резюме</button>
       <button class="${store.profileTab === 'favorites' ? 'is-active' : ''}" type="button" role="tab" aria-selected="${store.profileTab === 'favorites'}" data-action="profile-tab" data-value="favorites">
-        Избранное${count > 0 ? ` <span>${count}</span>` : ''}
+        Избранное <span data-favorites-count ${count > 0 ? '' : 'hidden'}>${count}</span>
       </button>
     </div>`;
 }
@@ -35,8 +35,9 @@ function loginGateView() {
           <h2>Вход в профиль</h2>
           <p>Введи корпоративную почту Финансового университета</p>
           <div class="profile-email-form">
-            <input id="profileEmail" type="email" inputmode="email" autocomplete="email" placeholder="student@edu.fa.ru" value="${escapeHtml(store.profileEmail)}" />
-            ${store.profileEmailError ? `<p class="form-error">${escapeHtml(store.profileEmailError)}</p>` : ''}
+            <label class="sr-only" for="profileEmail">Корпоративная почта</label>
+            <input id="profileEmail" type="email" inputmode="email" autocomplete="email" placeholder="student@edu.fa.ru" value="${escapeHtml(store.profileEmail)}" aria-invalid="${Boolean(store.profileEmailError)}" ${store.profileEmailError ? 'aria-describedby="profileEmailError"' : ''} />
+            ${store.profileEmailError ? `<p class="form-error" id="profileEmailError" role="alert">${escapeHtml(store.profileEmailError)}</p>` : ''}
             ${button('Войти', { variant: 'primary', action: 'submit-profile-email', icon: icons.arrowRight })}
           </div>
         </div>
@@ -137,18 +138,22 @@ function adminPanelView() {
         ${button('Обычный профиль', { variant: 'ghost', action: 'admin-mode', route: 'profile', icon: icons.user })}
       </div>
 
-      ${store.adminFormError ? `<p class="admin-error">${escapeHtml(store.adminFormError)}</p>` : ''}
+      ${store.adminFormError ? `<p class="admin-error" role="alert">${escapeHtml(store.adminFormError)}</p>` : ''}
 
       <section class="admin-form">
         <h2>Добавить разработчика</h2>
+        <label class="sr-only" for="adminDeveloperName">Имя разработчика</label>
         <input id="adminDeveloperName" type="text" autocomplete="name" placeholder="Имя разработчика" />
+        <label class="sr-only" for="adminDeveloperEmail">Почта разработчика</label>
         <input id="adminDeveloperEmail" type="email" inputmode="email" autocomplete="email" placeholder="developer@edu.fa.ru" />
         ${button('Добавить разработчика', { variant: 'primary', action: 'add-admin-developer', icon: '' })}
       </section>
 
       <section class="admin-form">
         <h2>Добавить место</h2>
+        <label class="sr-only" for="adminPlaceTitle">Название места</label>
         <input id="adminPlaceTitle" type="text" placeholder="Название места" />
+        <label class="sr-only" for="adminPlaceAddress">Адрес или описание</label>
         <input id="adminPlaceAddress" type="text" placeholder="Адрес или описание" />
         ${button('Добавить место', { variant: 'primary', action: 'add-admin-place', icon: '' })}
       </section>
