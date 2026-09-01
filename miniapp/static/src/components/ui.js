@@ -38,7 +38,7 @@ export function topTitle(title, right = '') {
 
 export function bottomNav() {
   const hash = window.location.hash;
-  const active = hash.includes('/events') ? 'events' : hash.includes('/profile') ? 'profile' : 'vacancies';
+  const active = hash.includes('/partners') ? 'partners' : hash.includes('/events') ? 'events' : hash.includes('/profile') ? 'profile' : 'vacancies';
   const favCount = store.favorites.size;
 
   const item = (id, label, icon, route, extra = '') => `
@@ -49,6 +49,7 @@ export function bottomNav() {
   return `
     <nav class="bottom-nav" aria-label="Основная навигация">
       ${item('vacancies', 'Вакансии', icons.briefcase, '/vacancies')}
+      ${item('partners', 'Партнеры', icons.building, '/partners')}
       ${item('events', 'События', icons.calendar, '/events')}
       ${item('profile', 'Профиль', icons.user, '/profile', `<i class="nav-badge" data-favorites-count ${favCount ? '' : 'hidden'}>${favCount}</i>`)}
     </nav>`;

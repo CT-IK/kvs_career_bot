@@ -30,11 +30,24 @@ function emptyEventDraft() {
     lead: '',
     title: '',
     date: '',
+    startsAt: '',
     place: '',
     description: '',
     deadline: '',
     url: '',
+    capacity: '',
     isActive: true,
+  };
+}
+
+function emptyPartnerDraft() {
+  return {
+    name: '',
+    logo: '',
+    description: '',
+    achievements: '',
+    isActive: true,
+    departments: [{ name: '', description: '' }],
   };
 }
 
@@ -50,6 +63,7 @@ export const store = {
   profileEmail: '',
   profileEmailError: '',
   adminMode: 'panel',
+  adminSection: 'events',
   adminDevelopers: readList(ADMIN_DEVELOPERS_KEY),
   adminPlaces: readList(ADMIN_PLACES_KEY),
   adminFormError: '',
@@ -58,6 +72,16 @@ export const store = {
   adminEventDraft: emptyEventDraft(),
   adminEventEditingId: null,
   adminEventError: '',
+  subscription: { checked: false, required: false, subscribed: true, channelUrl: '', error: '' },
+  myEvents: [],
+  notificationsCount: 0,
+  adminPartners: [],
+  adminPartnerDraft: emptyPartnerDraft(),
+  adminPartnerEditingId: null,
+  adminPartnerError: '',
+  adminMetrics: null,
+  adminMetricsRange: 30,
+  adminMetricsError: '',
   favorites: readFavorites(),
   onboardingSeen: window.localStorage.getItem(ONBOARDING_KEY) === '1',
 };
@@ -140,7 +164,12 @@ export function startCreateEvent() {
 }
 
 export function startEditEvent(event) {
+  const startsAt = event.startsAt ? new Date(event.startsAt) : null;
+  const localStartsAt = startsAt && !Number.isNaN(startsAt.getTime())
+    ? new Date(startsAt.getTime() - startsAt.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+    : '';
   store.adminEventEditingId = event.id;
+  store.adminSection = 'events';
   store.adminEventDraft = {
     category: event.category || '',
     format: event.format || 'Офлайн',
@@ -148,13 +177,51 @@ export function startEditEvent(event) {
     lead: event.lead || '',
     title: event.title || '',
     date: event.date || '',
+    startsAt: localStartsAt,
     place: event.place || '',
     description: event.description || '',
     deadline: event.deadline || '',
     url: event.url || '',
+    capacity: event.capacity || '',
     isActive: event.isActive !== false,
   };
   store.adminEventError = '';
+}
+
+export function startCreatePartner() {
+  store.adminPartnerEditingId = null;
+  store.adminPartnerDraft = emptyPartnerDraft();
+  store.adminPartnerError = '';
+}
+
+export function startEditPartner(partner) {
+  store.adminPartnerEditingId = partner.id;
+  store.adminPartnerDraft = {
+    name: partner.name || '',
+    logo: partner.logoUrl || '',
+    description: partner.description || '',
+    achievements: partner.achievements || '',
+    isActive: partner.isActive !== false,
+    departments: partner.departments?.length
+      ? partner.departments.map((item) => ({ name: item.name || '', description: item.description || '' }))
+      : [{ name: '', description: '' }],
+  };
+  store.adminPartnerError = '';
+}
+
+export function setPartnerDraft(draft) {
+  store.adminPartnerDraft = draft;
+}
+
+export function addPartnerDepartment() {
+  store.adminPartnerDraft.departments.push({ name: '', description: '' });
+}
+
+export function removePartnerDepartment(index) {
+  store.adminPartnerDraft.departments.splice(index, 1);
+  if (!store.adminPartnerDraft.departments.length) {
+    store.adminPartnerDraft.departments.push({ name: '', description: '' });
+  }
 }
 
 export function saveFavorites() {

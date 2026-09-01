@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -651,7 +652,7 @@ async def sync_vacancy_image_cache(vacancies: Iterable | None = None) -> dict[st
 
     removed = 0
     for vacancy_id in orphan_ids:
-        delete_cached_vacancy(vacancy_id)
+        await asyncio.to_thread(delete_cached_vacancy, vacancy_id)
         removed += 1
 
     generated = 0
@@ -662,7 +663,9 @@ async def sync_vacancy_image_cache(vacancies: Iterable | None = None) -> dict[st
             continue
 
         try:
-            generate_and_cache(vacancy)
+            # Pillow rendering is CPU-bound and used to freeze every bot
+            # update while a full cache was regenerated after midnight.
+            await asyncio.to_thread(generate_and_cache, vacancy)
             generated += 1
         except Exception:
             logger.exception("Failed to generate image for vacancy %s", getattr(vacancy, "id", None))

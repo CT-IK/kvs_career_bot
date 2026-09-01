@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import hashlib
-import logging
 import os
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +13,6 @@ from google.oauth2.service_account import Credentials
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_DIR / ".env")
 load_dotenv()
-
-logger = logging.getLogger(__name__)
 
 SHEET_CACHE_TTL_SECONDS = max(15, int(os.getenv("MINIAPP_SHEET_CACHE_TTL_SECONDS", "300")))
 
@@ -57,11 +52,11 @@ FACULTY_CHECKED_VALUES = {"да", "yes", "1", "x", "✓", "true", "т", "+"}
 BRAND_COLORS = ["#21A33B", "#159DD8", "#F40909", "#EC1C24", "#6266FF", "#C40016", "#009F62"]
 METRO_COLORS = ["#D0183D", "#1268B3", "#159B55", "#EC7D00", "#7B61FF", "#C40016"]
 
-# Known employer logos (freely-licensed files from Wikimedia Commons, served from
-# assets/images/logos/), each with its real brand color for the vacancy-detail
+# Known employer logos (local SVG/PNG assets served from assets/images/logos/),
+# each with its real brand color for the vacancy-detail
 # banner. Matched against the "Организация" cell by substring so minor spelling
-# variants in the sheet still resolve. Companies without a verified free-licensed
-# logo (e.g. Газпромбанк, Билайн, Росатом) intentionally have none — they fall
+# variants in the sheet still resolve. Companies without a verified logo asset
+# (e.g. Билайн, Росатом) intentionally have none — they fall
 # back to the colored-initial avatar and hashed banner color, same as any
 # unrecognized organization.
 COMPANY_LOGOS: list[tuple[str, str, str, tuple[str, ...]]] = [
@@ -78,7 +73,7 @@ COMPANY_LOGOS: list[tuple[str, str, str, tuple[str, ...]]] = [
     ("rostelecom", "svg", "#7B2BF9", ("ростелеком", "rostelecom")),
     ("ozon", "svg", "#005BFF", ("озон", "ozon")),
     ("wildberries", "png", "#CB11AB", ("wildberries", "вайлдберриз")),
-    ("x5group", "svg", "#F37021", ("x5 group", "икс 5", "икс5", "пятёрочка", "пятерочка", "перекрёсток", "перекресток")),
+    ("x5group-full", "png", "#5FAF2D", ("x5 group", "икс 5", "икс5", "пятёрочка", "пятерочка", "перекрёсток", "перекресток")),
     ("magnit", "svg", "#E30713", ("магнит", "magnit")),
     ("rosneft", "svg", "#1A1A1A", ("роснефть", "rosneft")),
     ("lukoil", "svg", "#EE1C25", ("лукойл", "lukoil")),
@@ -90,28 +85,21 @@ COMPANY_LOGOS: list[tuple[str, str, str, tuple[str, ...]]] = [
     ("ey", "svg", "#FFE600", ("эрнст энд янг", "ernst & young", "б1", "b1")),
     ("sibur", "svg", "#00A19C", ("сибур", "sibur")),
     ("cbrf", "svg", "#6D6E71", ("банк россии", "центральный банк", "центробанк", "цб рф")),
+    ("gazprombank", "svg", "#476BF0", ("газпромбанк", "gazprombank", "gazprom bank", "банк гпб", "gpb bank")),
+    ("mars", "svg", "#0000A0", ("mars incorporated", "mars inc", "марс", "марс инкорпорейтед", "mars")),
     # Kept last: "газпром" alone would also match the unrelated Газпромбанк/Газпром нефть
-    # subsidiaries, which don't have their own verified logo asset — excluded explicitly below.
+    # subsidiaries. Газпромбанк resolves above; Газпром нефть is excluded explicitly below.
     ("gazprom", "svg", "#0079C1", ("газпром",)),
 ]
 
-GAZPROM_SUBSIDIARY_EXCLUSIONS = ("газпромбанк", "газпромнефть", "газпром нефть")
-
-# Real brand color known, but no verified free-licensed logo exists for it (see
-# the COMPANY_LOGOS comment) — e.g. Газпромбанк's own site/brandbook uses this
-# blue, distinct from parent Газпром's. Still worth using instead of the
-# generic per-name hash, even with no image to show.
-BRAND_COLOR_ONLY: list[tuple[str, tuple[str, ...]]] = [
-    ("#0072BC", ("газпромбанк", "gazprombank")),
-]
+GAZPROM_SUBSIDIARY_EXCLUSIONS = ("газпромнефть", "газпром нефть")
 
 
 def _match_company(organization: str) -> tuple[str | None, str | None, str]:
     """Return (logo_slug, logo_ext, brandColor) for an organization.
 
-    logo_slug/logo_ext are None when there's no verified free-licensed logo,
-    even if the real brand color is known (see BRAND_COLOR_ONLY) — falls back
-    to the generic per-name hash color only when neither is known.
+    logo_slug/logo_ext are None when there's no known local logo asset; in that
+    case the brand color falls back to a stable per-name color.
     """
     normalized = organization.casefold()
     is_gazprom_subsidiary = any(term in normalized for term in GAZPROM_SUBSIDIARY_EXCLUSIONS)
@@ -120,10 +108,6 @@ def _match_company(organization: str) -> tuple[str | None, str | None, str]:
         for slug, ext, color, aliases in COMPANY_LOGOS:
             if any(alias in normalized for alias in aliases):
                 return slug, ext, color
-
-    for color, aliases in BRAND_COLOR_ONLY:
-        if any(alias in normalized for alias in aliases):
-            return None, None, color
 
     return None, None, _brand_color(organization)
 
@@ -258,6 +242,63 @@ def _to_frontend_vacancy(row: dict[str, str], row_number: int) -> dict[str, Any]
     }
 
 
+DB_FACULTY_COLUMNS = [
+    ("itiabd", "ИТиАБД"),
+    ("ioo", "ИОО"),
+    ("meo", "МЭО"),
+    ("feb", "ФЭБ"),
+    ("snimk", "СНиМК"),
+    ("nab", "НАБ"),
+    ("vshu", "ВШУ"),
+    ("finfak", "ФФ"),
+    ("yurfak", "ЮФ"),
+]
+
+
+def vacancy_from_db(vacancy) -> dict[str, Any]:
+    """Map a SQL Vacancy to the existing miniapp response contract."""
+    organization = (vacancy.organization or "Компания").strip()
+    title = (vacancy.position or "Вакансия").strip()
+    division = (vacancy.division or "").strip()
+    salary = (vacancy.salary or "По договорённости").strip()
+    schedule = (vacancy.schedule or "").strip()
+    work_format = (vacancy.work_format or "Гибрид").strip()
+    employment_format = _kind((vacancy.employment_format or "").strip())
+    description = (vacancy.description or "Описание появится позже.").strip()
+    features = _features(vacancy.feature1 or "", vacancy.feature2 or "", vacancy.feature3 or "")
+    faculties = [label for field, label in DB_FACULTY_COLUMNS if bool(getattr(vacancy, field, False))]
+    logo_slug, logo_ext, brand_color = _match_company(organization)
+
+    return {
+        "id": f"db-{vacancy.id}",
+        "sourceRow": vacancy.source_row,
+        "company": {
+            "id": f"company-{_stable_index(organization, 100000)}",
+            "name": organization,
+            "initial": organization[:1].upper() or "K",
+            "brandColor": brand_color,
+            "logoUrl": f"/assets/images/logos/{logo_slug}.{logo_ext}" if logo_slug else None,
+            "verified": True,
+        },
+        "division": division,
+        "title": title,
+        "salary": salary,
+        "metro": division or schedule or "Уточняется",
+        "metroColor": _metro_color(division or schedule or organization),
+        "format": work_format,
+        "kind": employment_format,
+        "sphere": (vacancy.sphere or "Другое").strip(),
+        "faculties": faculties,
+        "category": faculties[0] if faculties else "Без факультета",
+        "experience": features[0] if features else "Без опыта",
+        "description": description,
+        "fullDescription": description,
+        "requirements": features or ["Требования уточняются у работодателя"],
+        "offer": [value for value in [salary, schedule, work_format, employment_format] if value],
+        "applyUrl": (vacancy.vacancy_url or "").strip(),
+    }
+
+
 def _rows_from_sheet() -> list[dict[str, str]]:
     spreadsheet = _get_spreadsheet()
     sheet = spreadsheet.sheet1
@@ -332,58 +373,3 @@ def build_categories(items: list[dict[str, Any]]) -> list[str]:
     present = {label for item in items for label in item.get("faculties", [])}
     ordered = [label for _, label in FACULTY_COLUMNS if label in present]
     return ["Все", *ordered]
-
-
-async def run_daily_vacancy_refresh_scheduler() -> None:
-    """Force a fresh Google Sheets read for the miniapp's own vacancy cache
-    every day at a configured time (defaults to 00:00 Europe/Moscow).
-
-    This is independent of the bot's VACANCY_SYNC_HOUR/MINUTE schedule in
-    services/vacancy_scheduler.py, which syncs a separate SQL `vacancies`
-    table used by the Telegram bot's own vacancy browsing — the miniapp reads
-    Google Sheets directly into its own in-memory cache and needed its own
-    schedule. Reuses that module's time-math helpers rather than duplicating them.
-    """
-    from config import (
-        MINIAPP_VACANCY_REFRESH_HOUR,
-        MINIAPP_VACANCY_REFRESH_MINUTE,
-        MINIAPP_VACANCY_REFRESH_SCHEDULE_ENABLED,
-    )
-    from services.vacancy_scheduler import get_next_vacancy_sync_run, get_vacancy_sync_timezone
-
-    if not MINIAPP_VACANCY_REFRESH_SCHEDULE_ENABLED:
-        logger.info("Miniapp vacancy refresh scheduler is disabled")
-        return
-
-    timezone = get_vacancy_sync_timezone()
-    logger.info(
-        "Miniapp vacancy refresh scheduler enabled at %02d:%02d (%s)",
-        MINIAPP_VACANCY_REFRESH_HOUR,
-        MINIAPP_VACANCY_REFRESH_MINUTE,
-        getattr(timezone, "key", None) or timezone.tzname(None) or str(timezone),
-    )
-
-    try:
-        while True:
-            now = datetime.now(timezone)
-            next_run = get_next_vacancy_sync_run(
-                now,
-                hour=MINIAPP_VACANCY_REFRESH_HOUR,
-                minute=MINIAPP_VACANCY_REFRESH_MINUTE,
-            )
-            sleep_seconds = max(1.0, (next_run - now).total_seconds())
-            logger.info("Next miniapp vacancy refresh scheduled for %s", next_run.isoformat())
-            await asyncio.sleep(sleep_seconds)
-
-            try:
-                items, loaded_at = await asyncio.to_thread(load_vacancies_from_google_sheet, True)
-                logger.info(
-                    "Miniapp vacancy refresh finished: %s items (loaded_at=%s)",
-                    len(items),
-                    loaded_at,
-                )
-            except Exception:
-                logger.exception("Scheduled miniapp vacancy refresh failed")
-    except asyncio.CancelledError:
-        logger.info("Miniapp vacancy refresh scheduler stopped")
-        raise

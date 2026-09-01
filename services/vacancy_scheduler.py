@@ -7,6 +7,8 @@ import logging
 from datetime import datetime, timedelta, timezone, tzinfo
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from sqlalchemy import func, select
+
 from config import (
     VACANCY_SYNC_HOUR,
     VACANCY_SYNC_MINUTE,
@@ -14,7 +16,8 @@ from config import (
     VACANCY_SYNC_TIMEZONE,
 )
 from database.db import async_session_maker
-from services.google_sheets import sync_vacancies_to_db
+from database.models import Vacancy, VacancySyncState
+from services.google_sheets import sync_vacancies_to_db_with_stats
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +45,61 @@ def get_next_vacancy_sync_run(now: datetime, *, hour: int, minute: int) -> datet
     return scheduled_today + timedelta(days=1)
 
 
-async def run_vacancy_sync_job() -> int:
-    """Synchronize vacancies into SQL and rebuild vacancy cards."""
-    logger.info("Starting scheduled vacancy sync")
+async def _save_sync_state(status: str, **values) -> None:
+    """Persist scheduler state separately from the vacancy transaction."""
     async with async_session_maker() as session:
-        synced_count = await sync_vacancies_to_db(session)
-    logger.info("Scheduled vacancy sync finished: synced=%s", synced_count)
-    return synced_count
+        state = await session.get(VacancySyncState, 1)
+        if state is None:
+            state = VacancySyncState(id=1)
+            session.add(state)
+        state.status = status
+        for field, value in values.items():
+            setattr(state, field, value)
+        await session.commit()
+
+
+async def run_vacancy_sync_job() -> int:
+    """Apply one source snapshot, preserving the current DB on any failure."""
+    started_at = datetime.now(timezone.utc)
+    await _save_sync_state(
+        "syncing",
+        started_at=started_at,
+        error_message=None,
+    )
+    logger.info("Starting vacancy sync")
+
+    try:
+        async with async_session_maker() as session:
+            try:
+                stats = await sync_vacancies_to_db_with_stats(session)
+            except Exception:
+                await session.rollback()
+                raise
+    except Exception as exc:
+        await _save_sync_state(
+            "failed",
+            error_message=str(exc)[:2000],
+        )
+        logger.exception("Vacancy sync failed; previous database snapshot remains active")
+        raise
+
+    await _save_sync_state(
+        "ready",
+        completed_at=datetime.now(timezone.utc),
+        error_message=None,
+        source_count=stats["source"],
+        added_count=stats["added"],
+        updated_count=stats["updated"],
+        deleted_count=stats["deleted"],
+    )
+    logger.info("Vacancy sync finished: %s", stats)
+    return stats["source"]
+
+
+async def _database_needs_initial_sync() -> bool:
+    async with async_session_maker() as session:
+        count = (await session.execute(select(func.count(Vacancy.id)))).scalar() or 0
+    return count == 0
 
 
 async def run_daily_vacancy_sync_scheduler() -> None:
@@ -66,6 +117,16 @@ async def run_daily_vacancy_sync_scheduler() -> None:
     )
 
     try:
+        # An empty installation is filled in the background. FastAPI and the
+        # bot can start accepting requests immediately instead of waiting for
+        # Google Sheets and image generation on their critical startup path.
+        try:
+            if await _database_needs_initial_sync():
+                logger.info("Vacancy database is empty; starting background initial sync")
+                await run_vacancy_sync_job()
+        except Exception:
+            logger.exception("Initial vacancy sync failed; scheduler will retry at the next run")
+
         while True:
             now = datetime.now(timezone)
             next_run = get_next_vacancy_sync_run(

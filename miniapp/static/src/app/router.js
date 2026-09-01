@@ -12,9 +12,16 @@ export function parseRoute() {
   if (path.startsWith('/vacancies/')) {
     return { name: 'vacancy-detail', path, id: path.split('/').pop(), params };
   }
+  const departmentMatch = path.match(/^\/partners\/(\d+)\/departments\/(\d+)$/);
+  if (departmentMatch) {
+    return { name: 'department-detail', path, partnerId: departmentMatch[1], departmentId: departmentMatch[2], params };
+  }
+  const partnerMatch = path.match(/^\/partners\/(\d+)$/);
+  if (partnerMatch) return { name: 'partner-detail', path, id: partnerMatch[1], params };
+  if (path === '/partners') return { name: 'partners', path, params };
   if (path === '/events') return { name: 'events', path, params };
-  if (path === '/profile/edit') return { name: 'profile-edit', path, params };
-  if (path === '/profile') return { name: 'profile', path, params };
+  if (path === '/notifications') return { name: 'notifications', path, params };
+  if (path === '/profile/edit' || path === '/profile') return { name: 'profile', path: '/profile', params };
   if (path === '/onboarding') return { name: 'onboarding', path, params };
   return { name: 'vacancies', path: '/vacancies', params };
 }

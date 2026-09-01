@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import func, select
 
-from config import ADMIN_IDS
+from config import ADMIN_IDS, MAX_ADMIN_IDS
 from database.db import async_session_maker
 from database.models import User
 
@@ -22,6 +22,16 @@ async def is_admin(user_id: int) -> bool:
     async with async_session_maker() as session:
         result = await session.execute(
             select(User.is_admin).where(User.telegram_id == user_id)
+        )
+        return bool(result.scalar())
+
+
+async def is_max_admin(user_id: int) -> bool:
+    if user_id in MAX_ADMIN_IDS:
+        return True
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(User.is_admin).where(User.max_user_id == user_id)
         )
         return bool(result.scalar())
 

@@ -1,4 +1,4 @@
-import { categories, eventCategories, events, profile, vacancies } from '../mock/data.js';
+import { categories, eventCategories, events, partners, profile, vacancies } from '../mock/data.js';
 
 const API_BASE = window.KVS_API_BASE ?? '/api/v1';
 const MOCK_DELAY = 200;
@@ -16,19 +16,39 @@ function canUseMockFallback() {
 
 async function request(path) {
   if (!API_BASE) return null;
-  const response = await fetch(`${API_BASE}${path}`);
+  const response = await fetch(`${API_BASE}${path}`, { headers: authHeaders() });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
 }
 
+async function userRequest(path, { method = 'GET' } = {}) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const data = await response.json();
+      if (data?.detail) detail = data.detail;
+    } catch {
+      /* keep generic status */
+    }
+    const error = new Error(detail);
+    error.status = response.status;
+    throw error;
+  }
+  return response.status === 204 ? null : response.json();
+}
+
 function authHeaders() {
-  const initData = window.Telegram?.WebApp?.initData;
-  return initData ? { 'X-Telegram-Init-Data': initData } : {};
+  const initData = window.WebApp?.initData;
+  return initData ? { 'X-Max-Init-Data': initData } : {};
 }
 
 // Admin mutations hit the real backend directly — there's no meaningful "mock
 // mode" for writes against the database, and the server verifies the caller
-// is an admin via signed Telegram initData regardless of what the client sends.
+// is an admin via signed MAX initData regardless of what the client sends.
 async function adminRequest(path, { method = 'GET', body } = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     method,
@@ -120,11 +140,69 @@ export async function getEvents({ category = 'Все' } = {}) {
   }));
 }
 
+export async function getMyEvents() {
+  try {
+    return await userRequest('/me/events');
+  } catch (error) {
+    if (!canUseMockFallback()) throw error;
+    return { items: events.filter((item) => item.isRegistered), total: 0 };
+  }
+}
+
+export async function registerEvent(id) {
+  return userRequest(`/events/${encodeURIComponent(id)}/register`, { method: 'POST' });
+}
+
+export async function unregisterEvent(id) {
+  return userRequest(`/events/${encodeURIComponent(id)}/register`, { method: 'DELETE' });
+}
+
+export async function getSubscriptionStatus() {
+  return userRequest('/subscription');
+}
+
 export async function getProfile() {
   const real = await request('/profile').catch(() => null);
   if (real) return real;
 
   return withMockState((forceEmpty) => (forceEmpty ? null : profile));
+}
+
+export async function getPartners() {
+  try {
+    const real = await request('/partners');
+    if (real) return real;
+  } catch (error) {
+    if (!canUseMockFallback()) throw error;
+  }
+  return withMockState((forceEmpty) => ({ items: forceEmpty ? [] : partners, total: forceEmpty ? 0 : partners.length }));
+}
+
+export async function getPartner(id) {
+  try {
+    const real = await request(`/partners/${encodeURIComponent(id)}`);
+    if (real) return real;
+  } catch (error) {
+    if (!canUseMockFallback()) throw error;
+  }
+  await wait(140);
+  const partner = partners.find((item) => item.id === id);
+  if (!partner) throw new Error('Not found');
+  return partner;
+}
+
+export async function getPartnerDepartment(partnerId, departmentId) {
+  try {
+    const real = await request(`/partners/${encodeURIComponent(partnerId)}/departments/${encodeURIComponent(departmentId)}`);
+    if (real) return real;
+  } catch (error) {
+    if (!canUseMockFallback()) throw error;
+  }
+  await wait(140);
+  const partner = partners.find((item) => item.id === partnerId);
+  const department = partner?.departments.find((item) => item.id === departmentId);
+  if (!department) throw new Error('Not found');
+  return { ...department, companyLogoUrl: partner.logoUrl };
 }
 
 export async function getAdminEvents() {
@@ -141,4 +219,80 @@ export async function updateEvent(id, payload) {
 
 export async function deleteEvent(id) {
   return adminRequest(`/admin/events/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function uploadEventImage(file) {
+  const response = await fetch(`${API_BASE}/admin/events/upload`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': file.type },
+    body: file,
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function sendEventMessage(id, payload) {
+  return adminRequest(`/admin/events/${encodeURIComponent(id)}/message`, {
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export async function getAdminPartners() {
+  return adminRequest('/admin/partners');
+}
+
+export async function createPartner(payload) {
+  return adminRequest('/admin/partners', { method: 'POST', body: payload });
+}
+
+export async function updatePartner(id, payload) {
+  return adminRequest(`/admin/partners/${encodeURIComponent(id)}`, { method: 'PUT', body: payload });
+}
+
+export async function deletePartner(id) {
+  return adminRequest(`/admin/partners/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export function trackMetric(payload) {
+  if (!API_BASE) return;
+  fetch(`${API_BASE}/metrics/actions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+    keepalive: true,
+  }).catch(() => {});
+}
+
+export async function getAdminMetrics(days = 30) {
+  return adminRequest(`/admin/metrics?days=${encodeURIComponent(days)}`);
+}
+
+export async function downloadAdminMetrics(days = 30) {
+  const response = await fetch(`${API_BASE}/admin/metrics/export?days=${encodeURIComponent(days)}`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const data = await response.json();
+      if (data?.detail) detail = data.detail;
+    } catch {
+      /* keep generic status */
+    }
+    throw new Error(detail);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `kvs-metrics-${days}d.csv`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

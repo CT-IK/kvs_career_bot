@@ -1,14 +1,24 @@
+import asyncio
+import hashlib
+import logging
 import os
 import sys
 import gspread
 from google.oauth2.service_account import Credentials
-from config import EVENTS_GOOGLE_SHEETS_URL, GOOGLE_CREDENTIALS_FILE, GOOGLE_SHEET_NAME, GOOGLE_SHEETS_URL
+from config import EVENTS_GOOGLE_SHEETS_URL, GOOGLE_CREDENTIALS_FILE, GOOGLE_SHEET_NAME, GOOGLE_SHEETS_URL, VACANCY_SYNC_ALLOW_EMPTY
 from database.models import Vacancy, Company, Division, Event, EventRegistration, User
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func
 from services.image_generator import sync_vacancy_image_cache
 from datetime import datetime
 from services.company_utils import clean_company_name, normalize_company_name
+
+logger = logging.getLogger(__name__)
+_vacancy_sync_lock = asyncio.Lock()
+
+
+class VacancySyncError(RuntimeError):
+    """Raised when a source snapshot is unsafe to apply to PostgreSQL."""
 
 SHEET_HEADERS = [
     "Организация",
@@ -737,7 +747,7 @@ def _parse_faculty_field(value: str) -> bool:
 
 
 # Класс для обратной совместимости
-def parse_vacancies_from_sheet(sheet) -> list[dict]:
+def parse_vacancies_from_sheet(sheet, *, strict: bool = False) -> list[dict]:
     """Parse vacancies from Google Sheets using the canonical header mapping."""
     try:
         _ensure_sheet_headers(sheet)
@@ -755,7 +765,7 @@ def parse_vacancies_from_sheet(sheet) -> list[dict]:
         _safe_print(f"Rows with data: {len(data_rows)}")
 
         vacancies = []
-        for row in data_rows:
+        for source_row, row in enumerate(data_rows, start=3):
             if not row or not row[0] or not row[0].strip():
                 continue
 
@@ -765,6 +775,7 @@ def parse_vacancies_from_sheet(sheet) -> list[dict]:
 
             vacancy = _vacancy_row_to_db_payload(vacancy_data)
             if vacancy["organization"] and vacancy["position"]:
+                vacancy["_source_row"] = source_row
                 vacancies.append(vacancy)
 
         _safe_print(f"Parsed vacancies: {len(vacancies)}")
@@ -774,6 +785,8 @@ def parse_vacancies_from_sheet(sheet) -> list[dict]:
         _safe_print(f"Sheet parsing error: {e}")
         import traceback
         traceback.print_exc()
+        if strict:
+            raise VacancySyncError(f"Failed to parse vacancy sheet: {e}") from e
         return []
 
 
@@ -792,76 +805,116 @@ class GoogleSheetsParser:
         return parse_vacancies_from_sheet(self.sheet)
 
 
-async def sync_vacancies_to_db(session: AsyncSession, clear_existing: bool = True):
-    """Синхронизация вакансий из Google Sheets в БД"""
-    _safe_print("\n" + "="*50)
-    _safe_print("🔄 СИНХРОНИЗАЦИЯ ВАКАНСИЙ")
-    _safe_print("="*50)
-    
-    # Подключаемся к Google Sheets
-    spreadsheet = get_google_spreadsheet()
-    if not spreadsheet:
-        _safe_print("❌ Не удалось подключиться к Google Sheets")
-        return 0
-    
-    # Парсим вакансии
-    sheet = spreadsheet.sheet1
-    vacancies_data = parse_vacancies_from_sheet(sheet)
-    
-    if not vacancies_data and False:
-        _safe_print("⚠️ Нет вакансий для синхронизации")
-        return 0
-    
-    if not vacancies_data:
-        if clear_existing:
-            await session.execute(delete(Vacancy))
-            _safe_print("🗑️ Старые вакансии удалены")
-        await sync_company_reference_data_from_sheets(session, spreadsheet)
-        await session.commit()
-        cache_stats = await sync_vacancy_image_cache()
-        _safe_print(
-            "🖼️ Кэш карточек вакансий: "
-            f"generated={cache_stats['generated']}, reused={cache_stats['reused']}, removed={cache_stats['removed']}"
+def _vacancy_source_key(payload: dict) -> str:
+    vacancy_url = (payload.get("vacancy_url") or "").strip().casefold()
+    if vacancy_url:
+        identity = f"url:{vacancy_url}"
+    else:
+        identity = "|".join(
+            (payload.get(field) or "").strip().casefold()
+            for field in ("organization", "division", "position", "employment_format")
         )
-        return 0
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
-    if clear_existing:
-        await session.execute(delete(Vacancy))
-        _safe_print("🗑️ Старые вакансии удалены")
-    
-    # Добавляем новые
-    synced_count = 0
-    for vac_data in vacancies_data:
-        new_vacancy = Vacancy(**vac_data)
-        session.add(new_vacancy)
-        synced_count += 1
 
-    created_companies, created_divisions = await _sync_companies_and_divisions(session, vacancies_data)
-    (
-        sheet_created_companies,
-        updated_companies,
-        sheet_created_divisions,
-        updated_divisions,
-    ) = await sync_company_reference_data_from_sheets(session, spreadsheet)
-    
-    await session.commit()
-    cache_stats = await sync_vacancy_image_cache()
-    
-    _safe_print("="*50)
-    _safe_print(f"✅ СИНХРОНИЗИРОВАНО: {synced_count} вакансий")
-    _safe_print(f"🏢 СОЗДАНО КОМПАНИЙ: {created_companies}")
-    _safe_print(f"🏛️ СОЗДАНО ПОДРАЗДЕЛЕНИЙ: {created_divisions}")
-    _safe_print(
-        "🖼️ Кэш карточек вакансий: "
-        f"generated={cache_stats['generated']}, reused={cache_stats['reused']}, removed={cache_stats['removed']}"
-    )
-    _safe_print(f"Created companies from Sheets: {sheet_created_companies}")
-    _safe_print(f"Updated companies from Sheets: {updated_companies}")
-    _safe_print(f"Created divisions from Sheets: {sheet_created_divisions}")
-    _safe_print(f"Updated divisions from Sheets: {updated_divisions}")
-    _safe_print("="*50 + "\n")
-    
-    return synced_count
+def _load_vacancy_snapshot() -> list[dict]:
+    """Read and validate the complete source snapshot in a worker thread."""
+    spreadsheet = get_google_spreadsheet()
+    if spreadsheet is None:
+        raise VacancySyncError("Google Sheets is unavailable")
+    vacancies = parse_vacancies_from_sheet(spreadsheet.sheet1, strict=True)
+    if not vacancies and not VACANCY_SYNC_ALLOW_EMPTY:
+        raise VacancySyncError(
+            "The source returned zero vacancies; the previous snapshot was preserved"
+        )
+
+    deduplicated: dict[str, dict] = {}
+    for payload in vacancies:
+        source_key = _vacancy_source_key(payload)
+        payload["source_key"] = source_key
+        deduplicated[source_key] = payload
+    return list(deduplicated.values())
+
+
+VACANCY_SYNC_FIELDS = (
+    "organization", "division", "position", "sphere", "salary", "schedule",
+    "work_format", "description", "vacancy_url", "employment_format",
+    "feature1", "feature2", "feature3", "itiabd", "ioo", "finfak", "vshu",
+    "nab", "snimk", "meo", "feb", "yurfak",
+)
+
+
+async def sync_vacancies_to_db_with_stats(
+    session: AsyncSession,
+    clear_existing: bool = True,
+) -> dict[str, int]:
+    """Atomically apply a validated snapshot without blocking the bot event loop."""
+    async with _vacancy_sync_lock:
+        vacancies_data = await asyncio.to_thread(_load_vacancy_snapshot)
+        existing = (await session.execute(select(Vacancy))).scalars().all()
+        existing_by_key = {
+            vacancy.source_key: vacancy for vacancy in existing if vacancy.source_key
+        }
+        source_keys = {payload["source_key"] for payload in vacancies_data}
+
+        added = 0
+        updated = 0
+        for payload in vacancies_data:
+            source_key = payload["source_key"]
+            source_row = int(payload.get("_source_row") or 0) or None
+            vacancy = existing_by_key.get(source_key)
+            if vacancy is None:
+                values = {field: payload.get(field) for field in VACANCY_SYNC_FIELDS}
+                session.add(Vacancy(
+                    source_key=source_key,
+                    source_row=source_row,
+                    **values,
+                ))
+                added += 1
+                continue
+
+            changed = vacancy.source_row != source_row
+            vacancy.source_row = source_row
+            for field in VACANCY_SYNC_FIELDS:
+                value = payload.get(field)
+                if getattr(vacancy, field) != value:
+                    setattr(vacancy, field, value)
+                    changed = True
+            if changed:
+                updated += 1
+
+        deleted = 0
+        if clear_existing:
+            for vacancy in existing:
+                if not vacancy.source_key or vacancy.source_key not in source_keys:
+                    await session.delete(vacancy)
+                    deleted += 1
+
+        await _sync_companies_and_divisions(session, vacancies_data)
+        await session.commit()
+
+    try:
+        cache_stats = await sync_vacancy_image_cache()
+        logger.info("Vacancy image cache refreshed after database sync: %s", cache_stats)
+    except Exception:
+        # Image cards are a secondary Telegram optimization. Their failure
+        # must not roll back the already committed SQL snapshot.
+        logger.exception("Vacancies updated, but image cache refresh failed")
+
+    stats = {
+        "source": len(vacancies_data),
+        "added": added,
+        "updated": updated,
+        "deleted": deleted,
+    }
+    logger.info("Vacancy snapshot applied: %s", stats)
+    return stats
+
+
+async def sync_vacancies_to_db(session: AsyncSession, clear_existing: bool = True):
+    """Backward-compatible entry point used by existing admin commands."""
+    stats = await sync_vacancies_to_db_with_stats(session, clear_existing)
+    return stats["source"]
 
 
 async def sync_vacancies_to_sheet(session: AsyncSession, clear_existing: bool = True) -> int:

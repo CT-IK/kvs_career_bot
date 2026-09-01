@@ -37,47 +37,19 @@
  * @property {string} lead
  * @property {string} title
  * @property {string} date
+ * @property {string} startsAt - ISO date used for registration and reminders
  * @property {string} place
  * @property {string} description
  * @property {string} deadline
  * @property {string} url
  * @property {boolean} [isActive] - admin-only visibility toggle, present on /admin/events
- *
- * @typedef {Object} Education
- * @property {string} university
- * @property {string} program
- * @property {string} period
- *
- * @typedef {Object} Experience
- * @property {string} title
- * @property {string} company
- * @property {string} period
- * @property {string[]} bullets
- *
- * @typedef {Object} ResumeDraft
- * @property {number} step
- * @property {number} totalSteps
- * @property {string} university
- * @property {string} course
- * @property {string} specialty
+ * @property {boolean} [isRegistered]
  *
  * @typedef {Object} Profile
  * @property {string} name
- * @property {string} username
- * @property {string} universityShort
- * @property {string} headline
- * @property {string} location
- * @property {string} relocation
- * @property {string} status
- * @property {string} target
- * @property {string} salary
- * @property {string} email
- * @property {string} phone
- * @property {string} about
- * @property {Education} education
- * @property {string[]} skills
- * @property {Experience[]} experience
- * @property {ResumeDraft} draft
+ * @property {string} faculty
+ * @property {string} course
+ * @property {string} group
  *
  * @typedef {Object} Route
  * @property {string} name

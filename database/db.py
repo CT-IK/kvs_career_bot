@@ -33,14 +33,36 @@ async def init_db():
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(64)"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255)"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS max_user_id BIGINT"))
+            await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_max_user_id ON users (max_user_id) WHERE max_user_id IS NOT NULL"))
             await conn.execute(text("ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS ioo BOOLEAN DEFAULT FALSE"))
             await conn.execute(text("ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS vacancy_url TEXT"))
+            await conn.execute(text("ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS source_key VARCHAR(64)"))
+            await conn.execute(text("ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS source_row INTEGER"))
+            await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_vacancies_source_key ON vacancies (source_key) WHERE source_key IS NOT NULL"))
+            await conn.execute(text("ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo_url TEXT"))
+            await conn.execute(text("ALTER TABLE companies ADD COLUMN IF NOT EXISTS achievements TEXT"))
+            await conn.execute(text("ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_partner BOOLEAN NOT NULL DEFAULT FALSE"))
+            await conn.execute(text("ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"))
+            await conn.execute(text("ALTER TABLE miniapp_events ADD COLUMN IF NOT EXISTS starts_at TIMESTAMPTZ"))
+            await conn.execute(text("ALTER TABLE miniapp_events ADD COLUMN IF NOT EXISTS capacity INTEGER NOT NULL DEFAULT 0"))
+            await conn.execute(text("ALTER TABLE miniapp_event_registrations ALTER COLUMN telegram_id DROP NOT NULL"))
+            await conn.execute(text("ALTER TABLE miniapp_event_registrations ADD COLUMN IF NOT EXISTS max_user_id BIGINT"))
+            await conn.execute(text("ALTER TABLE miniapp_event_registrations ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'confirmed'"))
+            await conn.execute(text("ALTER TABLE miniapp_event_registrations ADD COLUMN IF NOT EXISTS promoted_at TIMESTAMPTZ"))
+            await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_miniapp_event_registration_max ON miniapp_event_registrations (event_id, max_user_id) WHERE max_user_id IS NOT NULL"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_miniapp_event_registrations_status ON miniapp_event_registrations (status)"))
+            await conn.execute(text("ALTER TABLE miniapp_actions ADD COLUMN IF NOT EXISTS max_user_id BIGINT"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_miniapp_actions_max_user_id ON miniapp_actions (max_user_id)"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_miniapp_events_starts_at ON miniapp_events (starts_at)"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_companies_is_partner ON companies (is_partner)"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_username_lower ON users (LOWER(username))"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_email_lower ON users (LOWER(email))"))
         _safe_print("✅ Таблицы базы данных успешно созданы/проверены")
         
         if SEED_DEMO_DATA:
             await seed_demo_data()
+        await seed_kept_partner()
     except Exception as e:
         _safe_print(f"❌ Ошибка при создании таблиц: {e}")
         raise
@@ -112,4 +134,49 @@ async def seed_demo_data():
         await session.commit()
     
     _safe_print("✅ Демо-данные загружены")
+
+
+async def seed_kept_partner() -> None:
+    """Add the supplied Kept profile once without overwriting later admin edits."""
+    from sqlalchemy import func
+
+    from database.models import Company, Division
+    from services.partner_defaults import KEPT_PARTNER
+
+    async with async_session_maker() as session:
+        company = (
+            await session.execute(
+                select(Company).where(func.lower(Company.name) == KEPT_PARTNER["name"].lower())
+            )
+        ).scalar_one_or_none()
+
+        # is_active=False is also the tombstone used when an admin removes a
+        # partner. Respect that choice on later restarts instead of re-seeding.
+        if company and (company.is_partner or not company.is_active):
+            return
+
+        if company is None:
+            company = Company(name=KEPT_PARTNER["name"])
+            session.add(company)
+            await session.flush()
+
+        company.description = KEPT_PARTNER["description"]
+        company.logo_url = KEPT_PARTNER["logo_url"]
+        company.achievements = KEPT_PARTNER["achievements"]
+        company.is_partner = True
+        company.is_active = True
+
+        existing_names = {
+            name.casefold()
+            for name in (
+                await session.execute(
+                    select(Division.name).where(Division.company_id == company.id)
+                )
+            ).scalars()
+        }
+        for division_data in KEPT_PARTNER["departments"]:
+            if division_data["name"].casefold() not in existing_names:
+                session.add(Division(company_id=company.id, **division_data))
+
+        await session.commit()
 

@@ -1,18 +1,19 @@
 import { isAdminProfile, isProfileAuthenticated, store } from '../app/store.js';
 import { vacancies } from '../mock/data.js';
-import { vacancyCard } from '../components/cards.js';
+import { eventCard, vacancyCard } from '../components/cards.js';
 import { icons } from '../components/icons.js';
-import { appShell, badge, button, emptyState, errorState, escapeHtml, skeletonList, topTitle } from '../components/ui.js';
-import { getAdminEvents, getProfile } from '../services/api.js';
+import { appShell, button, emptyState, errorState, escapeHtml, skeletonList, topTitle } from '../components/ui.js';
+import { getAdminEvents, getAdminMetrics, getAdminPartners, getMyEvents, getProfile } from '../services/api.js';
 
 function tabs() {
   const count = store.favorites.size;
   return `
     <div class="profile-tabs" role="tablist">
-      <button class="${store.profileTab === 'resume' ? 'is-active' : ''}" type="button" role="tab" aria-selected="${store.profileTab === 'resume'}" data-action="profile-tab" data-value="resume">Резюме</button>
+      <button class="${store.profileTab === 'resume' ? 'is-active' : ''}" type="button" role="tab" aria-selected="${store.profileTab === 'resume'}" data-action="profile-tab" data-value="resume">Профиль</button>
       <button class="${store.profileTab === 'favorites' ? 'is-active' : ''}" type="button" role="tab" aria-selected="${store.profileTab === 'favorites'}" data-action="profile-tab" data-value="favorites">
         Избранное <span data-favorites-count ${count > 0 ? '' : 'hidden'}>${count}</span>
       </button>
+      <button class="${store.profileTab === 'events' ? 'is-active' : ''}" type="button" role="tab" aria-selected="${store.profileTab === 'events'}" data-action="profile-tab" data-value="events">События</button>
     </div>`;
 }
 
@@ -49,13 +50,15 @@ function loginGateView() {
       <div class="login-card">
         <span class="login-icon">${icons.user}</span>
         <h2>Мой профиль</h2>
-        <p>Войди с корпоративной почтой, чтобы видеть резюме и избранные вакансии</p>
+        <p>Войди с корпоративной почтой, чтобы видеть данные об обучении, избранные вакансии и события</p>
         ${button('Войти в профиль', { variant: 'primary', action: 'start-profile-login', icon: icons.arrowRight })}
       </div>
     </section>`;
 }
 
 function resumeView(profile) {
+  const pendingValue = 'Данные загружаются';
+
   return `
     ${isAdminProfile() ? `<section class="admin-entry">${button('Панель разработчика', { variant: 'primary', action: 'admin-mode', route: 'panel', icon: icons.sparkle })}</section>` : ''}
 
@@ -63,51 +66,29 @@ function resumeView(profile) {
       <span class="avatar">${icons.user}</span>
       <div>
         <h2>${escapeHtml(profile.name)}</h2>
-        <p>${escapeHtml(profile.headline)}</p>
-        <p class="muted-line">${icons.mapPin}${escapeHtml(profile.location)} · ${escapeHtml(profile.relocation)}</p>
+        <p>Данные студента</p>
       </div>
     </section>
 
-    <section class="resume-summary">
-      <div class="tag-cloud">
-        ${badge(profile.status, 'red-soft')}
-        ${badge(profile.target)}
-        ${badge(profile.salary)}
-      </div>
-      <p class="contact">${icons.mail}${escapeHtml(profile.email)}</p>
-      <p class="contact">${icons.phone}${escapeHtml(profile.phone)}</p>
-    </section>
-
-    <section class="content-section"><h3>О себе</h3><p>${escapeHtml(profile.about)}</p></section>
-
-    <section class="content-section icon-section">
-      <span class="soft-icon">${icons.graduation}</span>
-      <div>
-        <h3>${escapeHtml(profile.education.university)}</h3>
-        <p>${escapeHtml(profile.education.program)}<br />${escapeHtml(profile.education.period)}</p>
-      </div>
-    </section>
-
-    <section class="content-section">
-      <h3>Навыки</h3>
-      <div class="tag-cloud">${profile.skills.map((s) => badge(s)).join('')}</div>
-    </section>
-
-    <section class="content-section">
-      <h3>Опыт работы</h3>
-      ${profile.experience.map((item) => `
-        <article class="timeline-item">
-          <span>${icons.briefcase}</span>
-          <div>
-            <h4>${escapeHtml(item.title)}</h4>
-            <p>${escapeHtml(item.company)}<br />${escapeHtml(item.period)}</p>
-            <ul>${item.bullets.map((b) => `<li>${escapeHtml(b)}</li>`).join('')}</ul>
-          </div>
-        </article>`).join('')}
+    <section class="student-info-card" aria-labelledby="studentInfoTitle">
+      <h3 id="studentInfoTitle">Обучение</h3>
+      <dl class="student-info-list">
+        <div>
+          <dt>Факультет</dt>
+          <dd>${escapeHtml(profile.faculty || pendingValue)}</dd>
+        </div>
+        <div>
+          <dt>Курс</dt>
+          <dd>${escapeHtml(profile.course || pendingValue)}</dd>
+        </div>
+        <div>
+          <dt>Группа</dt>
+          <dd>${escapeHtml(profile.group || pendingValue)}</dd>
+        </div>
+      </dl>
     </section>
 
     <section class="profile-actions">
-      ${button('Редактировать профиль', { variant: 'dark', action: 'navigate', route: '/profile/edit', icon: icons.pencil })}
       ${button('Выйти', { variant: 'ghost', action: 'logout-profile', icon: icons.logout })}
     </section>`;
 }
@@ -116,7 +97,100 @@ function listRows(items, emptyText, renderItem) {
   return items.length ? items.map(renderItem).join('') : `<p class="admin-empty">${escapeHtml(emptyText)}</p>`;
 }
 
-function adminPanelShell(eventsSectionHtml) {
+const ACTION_LABELS = {
+  navigate: 'Переходы между экранами',
+  apply: 'Отклики на вакансии',
+  'open-link': 'Внешние ссылки',
+  'toggle-favorite': 'Избранное',
+  'set-vacancy-category': 'Фильтры вакансий',
+  'set-event-category': 'Фильтры событий',
+  'toggle-event-registration': 'Добавление и отмена мероприятий',
+  'profile-tab': 'Вкладки профиля',
+  back: 'Возвраты назад',
+};
+
+function metricNumber(value) {
+  return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(Number(value || 0));
+}
+
+function analyticsBars(items) {
+  const max = Math.max(...items.map((item) => item.events), 1);
+  const stride = items.length > 45 ? 7 : items.length > 14 ? 3 : 1;
+  return `
+    <div class="analytics-chart-scroll">
+      <div class="analytics-bars" style="--columns:${items.length}">
+        ${items.map((item, index) => {
+          const height = item.events ? Math.max(6, Math.round((item.events / max) * 100)) : 2;
+          const label = new Date(`${item.date}T00:00:00`).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+          return `
+            <div class="analytics-bar" title="${escapeHtml(label)}: ${item.events} событий, ${item.users} пользователей">
+              <b>${item.events || ''}</b>
+              <span style="height:${height}%"></span>
+              <small>${index % stride === 0 || index === items.length - 1 ? escapeHtml(label) : ''}</small>
+            </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
+function analyticsRanking(items, { actionLabels = false } = {}) {
+  if (!items.length) return '<p class="analytics-empty">Данных за выбранный период пока нет.</p>';
+  const max = Math.max(...items.map((item) => item.count), 1);
+  return `
+    <div class="analytics-ranking">
+      ${items.map((item, index) => {
+        const label = actionLabels ? ACTION_LABELS[item.label] || item.label : item.label;
+        const width = Math.max(5, Math.round((item.count / max) * 100));
+        return `
+          <div class="analytics-rank">
+            <span class="analytics-rank-number">${index + 1}</span>
+            <div><p><span>${escapeHtml(label)}</span><strong>${metricNumber(item.count)}</strong></p><i style="width:${width}%"></i></div>
+          </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function adminMetricsSection() {
+  const metrics = store.adminMetrics;
+  return `
+    <section class="analytics-dashboard">
+      <div class="analytics-head">
+        <div><span>Аналитика mini app</span><h2>Активность пользователей</h2></div>
+        <button class="icon-btn analytics-download" type="button" data-action="download-admin-metrics" aria-label="Скачать статистику CSV">${icons.download}</button>
+      </div>
+      <div class="analytics-range" role="group" aria-label="Период статистики">
+        ${[7, 30, 90].map((days) => `<button class="${store.adminMetricsRange === days ? 'is-active' : ''}" type="button" data-action="set-admin-metrics-range" data-days="${days}">${days} дней</button>`).join('')}
+      </div>
+      ${store.adminMetricsError ? `<p class="admin-error" role="alert">${escapeHtml(store.adminMetricsError)}</p>` : ''}
+      ${metrics ? `
+        <div class="analytics-kpis">
+          <article><span>Клики</span><strong>${metricNumber(metrics.summary.clicks)}</strong></article>
+          <article><span>Просмотры</span><strong>${metricNumber(metrics.summary.pageViews)}</strong></article>
+          <article><span>Пользователи</span><strong>${metricNumber(metrics.summary.uniqueUsers)}</strong></article>
+          <article><span>Сегодня</span><strong>${metricNumber(metrics.summary.activeToday)}</strong></article>
+          <article class="analytics-kpi-wide"><span>Кликов на пользователя</span><strong>${metricNumber(metrics.summary.clicksPerUser)}</strong></article>
+        </div>
+        <section class="analytics-panel">
+          <div class="analytics-panel-head"><h3>Динамика активности</h3><span>${metrics.days} дней</span></div>
+          ${analyticsBars(metrics.daily)}
+          <div class="analytics-legend"><span><i></i>Все события</span></div>
+        </section>
+        <section class="analytics-panel">
+          <h3>Популярные действия</h3>
+          ${analyticsRanking(metrics.topActions, { actionLabels: true })}
+        </section>
+        <section class="analytics-panel">
+          <h3>Самые посещаемые экраны</h3>
+          ${analyticsRanking(metrics.topRoutes)}
+        </section>
+        <section class="analytics-panel">
+          <h3>По чему кликают</h3>
+          ${analyticsRanking(metrics.topTargets)}
+        </section>` : skeletonList(2)}
+    </section>`;
+}
+
+function adminPanelShell(managedContentHtml) {
   return `
     ${topTitle('Панель разработчика')}
     <section class="admin-window">
@@ -127,9 +201,27 @@ function adminPanelShell(eventsSectionHtml) {
         </div>
         ${button('Обычный профиль', { variant: 'ghost', action: 'admin-mode', route: 'profile', icon: icons.user })}
       </div>
+      <nav class="admin-sections" aria-label="Разделы панели">
+        ${[
+          ['events', 'Мероприятия'],
+          ['partners', 'Партнёры'],
+          ['metrics', 'Статистика'],
+          ['settings', 'Настройки'],
+        ].map(([id, label]) => `<button type="button" class="${store.adminSection === id ? 'is-active' : ''}" data-action="set-admin-section" data-value="${id}">${label}</button>`).join('')}
+      </nav>
+    </section>
 
+    ${managedContentHtml}
+
+    <section class="profile-actions">
+      ${button('Выйти из профиля', { variant: 'ghost', action: 'logout-profile', icon: icons.logout })}
+    </section>`;
+}
+
+function adminSettingsSection() {
+  return `
+    <section class="admin-window">
       ${store.adminFormError ? `<p class="admin-error" role="alert">${escapeHtml(store.adminFormError)}</p>` : ''}
-
       <section class="admin-form">
         <h2>Добавить разработчика</h2>
         <label class="sr-only" for="adminDeveloperName">Имя разработчика</label>
@@ -138,7 +230,6 @@ function adminPanelShell(eventsSectionHtml) {
         <input id="adminDeveloperEmail" type="email" inputmode="email" autocomplete="email" placeholder="developer@edu.fa.ru" />
         ${button('Добавить разработчика', { variant: 'primary', action: 'add-admin-developer', icon: '' })}
       </section>
-
       <section class="admin-form">
         <h2>Добавить место</h2>
         <label class="sr-only" for="adminPlaceTitle">Название места</label>
@@ -148,21 +239,66 @@ function adminPanelShell(eventsSectionHtml) {
         ${button('Добавить место', { variant: 'primary', action: 'add-admin-place', icon: '' })}
       </section>
     </section>
+    <section class="admin-list"><h2>Разработчики</h2>${listRows(store.adminDevelopers, 'Разработчики пока не добавлены.', (item) => `<article><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.email)}</span></article>`)}</section>
+    <section class="admin-list"><h2>Места</h2>${listRows(store.adminPlaces, 'Места пока не добавлены.', (item) => `<article><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.address)}</span></article>`)}</section>`;
+}
 
-    <section class="admin-list">
-      <h2>Разработчики</h2>
-      ${listRows(store.adminDevelopers, 'Разработчики пока не добавлены.', (item) => `<article><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.email)}</span></article>`)}
+function adminPartnerFormSection() {
+  const draft = store.adminPartnerDraft;
+  const isEditing = Boolean(store.adminPartnerEditingId);
+
+  return `
+    <section class="admin-window partner-admin-window">
+      ${store.adminPartnerError ? `<p class="admin-error" role="alert">${escapeHtml(store.adminPartnerError)}</p>` : ''}
+      <section class="admin-form">
+        <h2>${isEditing ? 'Редактировать партнера' : 'Добавить партнера'}</h2>
+        <label class="sr-only" for="adminPartnerName">Название компании</label>
+        <input id="adminPartnerName" type="text" placeholder="Название компании" value="${escapeHtml(draft.name)}" />
+        <label class="sr-only" for="adminPartnerLogo">Ссылка на логотип</label>
+        <input id="adminPartnerLogo" type="text" placeholder="Ссылка на логотип" value="${escapeHtml(draft.logo)}" />
+        <label class="admin-field-label" for="adminPartnerDescription">О компании</label>
+        <textarea id="adminPartnerDescription" rows="6" placeholder="Краткое описание компании">${escapeHtml(draft.description)}</textarea>
+        <label class="admin-field-label" for="adminPartnerAchievements">Заслуги и достижения</label>
+        <textarea id="adminPartnerAchievements" rows="7" placeholder="Рейтинги, награды и другие достижения">${escapeHtml(draft.achievements)}</textarea>
+
+        <div class="admin-department-head">
+          <h3>Департаменты</h3>
+          <button class="icon-btn admin-add-department" type="button" data-action="add-admin-partner-department" aria-label="Добавить департамент">${icons.plus}</button>
+        </div>
+        <div class="admin-departments">
+          ${draft.departments.map((department, index) => `
+            <section class="admin-department" data-partner-department="${index}">
+              <div class="admin-department-title">
+                <strong>Департамент ${index + 1}</strong>
+                <button class="icon-btn" type="button" data-action="remove-admin-partner-department" data-index="${index}" aria-label="Удалить департамент">${icons.trash}</button>
+              </div>
+              <input data-department-name type="text" placeholder="Название департамента" value="${escapeHtml(department.name)}" />
+              <textarea data-department-description rows="5" placeholder="Описание и направления работы">${escapeHtml(department.description)}</textarea>
+            </section>`).join('')}
+        </div>
+
+        <label class="admin-checkbox">
+          <input type="checkbox" id="adminPartnerActive" ${draft.isActive ? 'checked' : ''} />
+          Показывать в приложении
+        </label>
+        <div class="admin-form-actions">
+          ${button(isEditing ? 'Сохранить партнера' : 'Добавить партнера', { variant: 'primary', action: 'submit-admin-partner', icon: icons.check })}
+          ${isEditing ? button('Отмена', { variant: 'ghost', action: 'cancel-admin-partner', icon: '' }) : ''}
+        </div>
+      </section>
     </section>
 
     <section class="admin-list">
-      <h2>Места</h2>
-      ${listRows(store.adminPlaces, 'Места пока не добавлены.', (item) => `<article><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.address)}</span></article>`)}
-    </section>
-
-    ${eventsSectionHtml}
-
-    <section class="profile-actions">
-      ${button('Выйти из профиля', { variant: 'ghost', action: 'logout-profile', icon: icons.logout })}
+      <h2>Партнеры</h2>
+      ${listRows(store.adminPartners, 'Партнеры пока не добавлены.', (partner) => `
+        <article>
+          <strong>${escapeHtml(partner.name)}</strong>
+          <span>${partner.departmentCount} департаментов${partner.isActive ? '' : ' · скрыто'}</span>
+          <div class="admin-list-actions">
+            <button class="btn btn-ghost btn-small" type="button" data-action="edit-admin-partner" data-id="${escapeHtml(partner.id)}">${icons.pencil}<span>Редактировать</span></button>
+            <button class="btn btn-ghost btn-small" type="button" data-action="delete-admin-partner" data-id="${escapeHtml(partner.id)}">${icons.trash}<span>Удалить</span></button>
+          </div>
+        </article>`)}
     </section>`;
 }
 
@@ -184,6 +320,10 @@ function adminEventFormSection() {
           <label class="sr-only" for="adminEventFormat">Формат</label>
           <input id="adminEventFormat" type="text" placeholder="Формат (Онлайн/Офлайн/Гибрид)" value="${escapeHtml(draft.format)}" />
         </div>
+        <label class="admin-field-label" for="adminEventStartsAt">Точная дата и время для регистрации и уведомлений</label>
+        <input id="adminEventStartsAt" type="datetime-local" value="${escapeHtml(draft.startsAt)}" />
+        <label class="admin-field-label" for="adminEventCapacity">Лимит участников (виден только администраторам)</label>
+        <input id="adminEventCapacity" type="number" min="1" max="100000" inputmode="numeric" placeholder="Например, 50" value="${escapeHtml(draft.capacity)}" />
         <label class="sr-only" for="adminEventLead">Короткий анонс</label>
         <input id="adminEventLead" type="text" placeholder="Короткий анонс над заголовком" value="${escapeHtml(draft.lead)}" />
         <div class="form-grid">
@@ -192,12 +332,14 @@ function adminEventFormSection() {
           <label class="sr-only" for="adminEventPlace">Место</label>
           <input id="adminEventPlace" type="text" placeholder="Место проведения" value="${escapeHtml(draft.place)}" />
         </div>
-        <label class="sr-only" for="adminEventDescription">Описание</label>
-        <input id="adminEventDescription" type="text" placeholder="Описание мероприятия" value="${escapeHtml(draft.description)}" />
+        <label class="admin-field-label" for="adminEventDescription">Описание мероприятия</label>
+        <textarea id="adminEventDescription" rows="6" placeholder="Программа, формат участия и важные детали">${escapeHtml(draft.description)}</textarea>
         <label class="sr-only" for="adminEventDeadline">Дедлайн</label>
         <input id="adminEventDeadline" type="text" placeholder="Текст про дедлайн регистрации" value="${escapeHtml(draft.deadline)}" />
-        <label class="sr-only" for="adminEventImage">Ссылка на изображение</label>
-        <input id="adminEventImage" type="url" placeholder="Ссылка на изображение обложки" value="${escapeHtml(draft.image)}" />
+        <label class="admin-field-label" for="adminEventImageFile">Обложка мероприятия</label>
+        ${draft.image ? `<img class="admin-event-preview" src="${escapeHtml(draft.image)}" alt="Текущая обложка мероприятия" />` : ''}
+        <input id="adminEventImageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" />
+        <input id="adminEventImage" type="hidden" value="${escapeHtml(draft.image)}" />
         <label class="sr-only" for="adminEventUrl">Ссылка на регистрацию</label>
         <input id="adminEventUrl" type="url" placeholder="Ссылка на регистрацию" value="${escapeHtml(draft.url)}" />
         <label class="admin-checkbox">
@@ -214,25 +356,59 @@ function adminEventFormSection() {
     <section class="admin-list">
       <h2>Мероприятия</h2>
       ${listRows(store.adminEvents, 'Мероприятия пока не добавлены.', (event) => `
-        <article>
+        <article data-admin-event-row="${escapeHtml(event.id)}">
           <strong>${escapeHtml(event.title)}</strong>
           <span>${escapeHtml(event.category || 'Без категории')} · ${escapeHtml(event.date || 'дата не указана')}${event.isActive ? '' : ' · скрыто'}</span>
+          <span class="admin-event-stats">Основной список: ${event.mainCount || 0} / ${event.capacity || 0} · Резерв: ${event.reserveCount || 0}</span>
           <div class="admin-list-actions">
             <button class="btn btn-ghost btn-small" type="button" data-action="edit-admin-event" data-id="${escapeHtml(event.id)}">${icons.pencil}<span>Редактировать</span></button>
             <button class="btn btn-ghost btn-small" type="button" data-action="delete-admin-event" data-id="${escapeHtml(event.id)}">${icons.trash}<span>Удалить</span></button>
           </div>
+          <details class="admin-message-panel">
+            <summary>Написать участникам в MAX</summary>
+            <label>Получатели
+              <select data-event-message-audience>
+                <option value="all">Все участники</option>
+                <option value="confirmed">Только основной список</option>
+                <option value="reserve">Только резерв</option>
+              </select>
+            </label>
+            <textarea data-event-message-text rows="4" placeholder="Текст сообщения"></textarea>
+            <button class="btn btn-primary btn-small" type="button" data-action="send-admin-event-message" data-id="${escapeHtml(event.id)}">${icons.mail}<span>Отправить в MAX</span></button>
+          </details>
         </article>`)}
     </section>`;
 }
 
 async function adminPanelView() {
-  try {
-    const data = await getAdminEvents();
-    store.adminEvents = data.items;
-  } catch {
+  const [eventsResult, partnersResult, metricsResult] = await Promise.allSettled([
+    getAdminEvents(),
+    getAdminPartners(),
+    getAdminMetrics(store.adminMetricsRange),
+  ]);
+  if (eventsResult.status === 'fulfilled') {
+    store.adminEvents = eventsResult.value.items;
+  } else {
     store.adminEventError = 'Не удалось загрузить мероприятия.';
   }
-  return adminPanelShell(adminEventFormSection());
+  if (partnersResult.status === 'fulfilled') {
+    store.adminPartners = partnersResult.value.items;
+  } else {
+    store.adminPartnerError = 'Не удалось загрузить партнеров.';
+  }
+  if (metricsResult.status === 'fulfilled') {
+    store.adminMetrics = metricsResult.value;
+    store.adminMetricsError = '';
+  } else {
+    store.adminMetricsError = 'Не удалось загрузить статистику.';
+  }
+  const sections = {
+    events: adminEventFormSection,
+    partners: adminPartnerFormSection,
+    metrics: adminMetricsSection,
+    settings: adminSettingsSection,
+  };
+  return adminPanelShell((sections[store.adminSection] || adminEventFormSection)());
 }
 
 function favoritesView() {
@@ -242,44 +418,10 @@ function favoritesView() {
     : emptyState('В избранном пусто', 'Добавляй подходящие вакансии — нажми сердечко на любой карточке.', icons.heartOutline);
 }
 
-const STEP_LABELS = ['Образование', 'Цель и зарплата', 'Контакты', 'Навыки', 'Опыт'];
-
-function editView(profile) {
-  const step = profile.draft;
-  const pct = ((step.step - 1) / step.totalSteps) * 100;
-
-  return `
-    <section class="edit-profile-head">
-      <span class="avatar">${icons.user}</span>
-      <div>
-        <h2>${escapeHtml(profile.name)}</h2>
-        <p>${escapeHtml(profile.username)} · ${escapeHtml(profile.universityShort)}</p>
-      </div>
-    </section>
-
-    <section class="step-summary">
-      <p>Шаг <strong>${step.step} из ${step.totalSteps}</strong> — ${escapeHtml(STEP_LABELS[step.step - 1] || '')}</p>
-      <div class="step-bar"><span style="width:${pct}%"></span></div>
-      <div class="step-dots">
-        ${Array.from({ length: step.totalSteps }, (_, i) => `<span class="${i + 1 === step.step ? 'is-active' : i + 1 < step.step ? 'is-done' : ''}" aria-label="Шаг ${i + 1}">${i + 1 < step.step ? icons.check : i + 1}</span>`).join('')}
-      </div>
-    </section>
-
-    <section class="form-card">
-      <h2>Образование</h2>
-      <p>Вуз, курс и специальность</p>
-      <label>Университет<input value="${escapeHtml(profile.draft.university)}" placeholder="Название университета" /></label>
-      <div class="form-grid">
-        <label>Курс<input value="${escapeHtml(profile.draft.course)}" placeholder="4" inputmode="numeric" /></label>
-        <label>Специальность<input value="${escapeHtml(profile.draft.specialty)}" placeholder="Финансы" /></label>
-      </div>
-    </section>
-
-    <section class="profile-actions">
-      ${button('Сохранить шаг', { variant: 'dark', action: 'save-profile-step', icon: icons.check })}
-      ${button('Сгенерировать резюме', { variant: 'ghost', disabled: true, icon: icons.sparkle })}
-      ${button('Выйти', { variant: 'ghost', action: 'logout-profile', icon: icons.logout })}
-    </section>`;
+function myEventsView() {
+  return store.myEvents.length
+    ? `<section class="list-stack">${store.myEvents.map((event, index) => eventCard(event, index, { registeredView: true })).join('')}</section>`
+    : emptyState('Нет добавленных событий', 'Добавь мероприятие, и оно появится в профиле и под колокольчиком.', icons.bell);
 }
 
 export async function renderProfile(route) {
@@ -297,17 +439,25 @@ export async function renderProfile(route) {
 
     if (!profile) {
       return appShell(
-        `${topTitle('Мой профиль')}${emptyState('Профиль не найден', 'Заполни резюме, чтобы получать более точные рекомендации.')}`,
+        `${topTitle('Мой профиль')}${emptyState('Профиль не найден', 'Данные об обучении пока недоступны. Попробуй открыть профиль позже.')}`,
         { nav: true },
       );
     }
 
-    if (route.name === 'profile-edit') {
-      return appShell(`${topTitle('Редактирование')}${editView(profile)}`, { nav: true, className: 'profile-edit-screen' });
+    if (store.profileTab === 'events') {
+      const data = await getMyEvents();
+      store.myEvents = data.items || [];
+      store.notificationsCount = Number(data.total || store.myEvents.length);
     }
 
+    const profileContent = store.profileTab === 'favorites'
+      ? favoritesView()
+      : store.profileTab === 'events'
+        ? myEventsView()
+        : resumeView(profile);
+
     return appShell(
-      `${topTitle('Мой профиль')}${tabs()}${store.profileTab === 'favorites' ? favoritesView() : resumeView(profile)}`,
+      `${topTitle('Мой профиль')}${tabs()}${profileContent}`,
       { nav: true },
     );
   } catch {

@@ -2,6 +2,7 @@ const a = 'viewBox="0 0 24 24" aria-hidden="true" focusable="false"';
 
 export const icons = {
   briefcase: `<svg ${a}><path d="M9 4a3 3 0 0 1 3-3h1a3 3 0 0 1 3 3v2h3a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V9a3 3 0 0 1 3-3h4V4Zm2 2h3V4a1 1 0 0 0-1-1h-1a1 1 0 0 0-1 1v2Zm9 6H4v6a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-6Zm-7 1v2h-2v-2h2Z"/></svg>`,
+  building: `<svg ${a}><path d="M4 22V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6h3a1 1 0 0 1 1 1v12h-2V11h-2v11h-5v-4H9v4H4Zm2-2h1v-4h6v4h1V4H6v16Zm2-14h2v2H8V6Zm4 0h2v2h-2V6Zm-4 4h2v2H8v-2Zm4 0h2v2h-2v-2Z"/></svg>`,
   calendar: `<svg ${a}><path d="M7 2h2v3h6V2h2v3h2a3 3 0 0 1 3 3v11a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3h2V2Zm13 8H4v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-9ZM5 7a1 1 0 0 0-1 1h16a1 1 0 0 0-1-1H5Z"/></svg>`,
   user: `<svg ${a}><path d="M12 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-2a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm-8 9a7 7 0 0 1 14 0v2h-2v-2a5 5 0 0 0-10 0v2H4v-2Z"/></svg>`,
   arrowRight: `<svg ${a}><path d="m13.3 5.3 6.7 6.7-6.7 6.7-1.4-1.4 4.3-4.3H4v-2h12.2l-4.3-4.3 1.4-1.4Z"/></svg>`,
@@ -25,4 +26,5 @@ export const icons = {
   logout: `<svg ${a}><path d="M17 8l-1.4 1.4 1.6 1.6H9v2h8.2l-1.6 1.6L17 16l4-4-4-4ZM5 5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7v-2H5V5Z"/></svg>`,
   share: `<svg ${a}><path d="M18 16.1c-.8 0-1.5.3-2 .8l-7.2-4.2c0-.2.1-.4.1-.7 0-.3 0-.5-.1-.7L16 7.2c.5.5 1.2.8 2 .8a2.9 2.9 0 1 0-2.9-2.9c0 .2 0 .5.1.7L8 9.9a2.9 2.9 0 1 0 0 4.3l7.2 4.2c-.1.2-.1.4-.1.6A2.9 2.9 0 1 0 18 16.1Z"/></svg>`,
   trash: `<svg ${a}><path d="M9 3h6a1 1 0 0 1 1 1v1h5v2h-2v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7H3V5h5V4a1 1 0 0 1 1-1Zm1 3h4V5h-4v1ZM7 7v13h10V7H7Zm2 2h2v9H9V9Zm4 0h2v9h-2V9Z"/></svg>`,
+  plus: `<svg ${a}><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z"/></svg>`,
 };

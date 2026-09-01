@@ -35,7 +35,7 @@ async def run_miniapp_server():
     """Run the KVS Job miniapp web server inside the bot process."""
     import uvicorn
 
-    config = uvicorn.Config(
+    config = uvicorn.сщConfig(
         "miniapp.app:app",
         host=MINIAPP_HOST,
         port=MINIAPP_PORT,

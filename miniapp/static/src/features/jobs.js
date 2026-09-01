@@ -23,6 +23,20 @@ export async function renderJobs() {
       category: store.filters.vacancyCategory,
     });
 
+    if (data.maintenance) {
+      return appShell(
+        `
+        ${topTitle('Вакансии')}
+        ${emptyState(
+          'Технический перерыв',
+          data.maintenanceMessage || 'Обновляем вакансии. Попробуй открыть раздел через несколько минут.',
+          icons.clock,
+        )}
+        `,
+        { nav: true },
+      );
+    }
+
     const hasFilters = Boolean(store.filters.vacancyQuery) || store.filters.vacancyCategory !== 'Все';
     const list = data.items.length
       ? `<section class="list-stack">${data.items.map((item, i) => vacancyCard(item, { index: i })).join('')}</section>`
@@ -36,6 +50,7 @@ export async function renderJobs() {
     return appShell(
       `
       ${topTitle('Вакансии')}
+      ${data.syncing ? `<aside class="sync-banner">${icons.clock}<span>Обновляем список. Пока можно пользоваться предыдущей версией.</span></aside>` : ''}
       <label class="search-field">${icons.search}<input id="vacancySearch" type="search" value="${escapeHtml(store.filters.vacancyQuery)}" placeholder="Поиск стажировок и вакансий" autocomplete="off" /></label>
       ${chips(data.categories, store.filters.vacancyCategory, 'set-vacancy-category')}
       ${list}
@@ -46,7 +61,7 @@ export async function renderJobs() {
     return appShell(
       `
       ${topTitle('Вакансии')}
-      ${errorState('Не удалось загрузить вакансии. Проверь подключение и попробуй ещё раз.')}
+      ${errorState('Вакансии временно недоступны из-за технического перерыва. Попробуй ещё раз через несколько минут.')}
       `,
       { nav: true },
     );

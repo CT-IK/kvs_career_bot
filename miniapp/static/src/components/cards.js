@@ -1,6 +1,6 @@
 import { isAdminProfile, store } from '../app/store.js';
 import { icons } from './icons.js';
-import { badge, escapeHtml, verifiedIcon } from './ui.js';
+import { badge, escapeHtml } from './ui.js';
 
 export function companyLogo(company, size = '') {
   if (company.logoUrl) {
@@ -22,7 +22,7 @@ export function vacancyCard(vacancy, { compact = false, index = 0 } = {}) {
       <div class="vacancy-main">
         ${companyLogo(vacancy.company)}
         <div class="vacancy-info">
-          <p class="company-line">${escapeHtml(vacancy.company.name)}${vacancy.company.verified ? verifiedIcon() : ''}</p>
+          <p class="company-line">${escapeHtml(vacancy.company.name)}</p>
           <h2>${escapeHtml(vacancy.title)}</h2>
           <strong>${escapeHtml(vacancy.salary)}</strong>
         </div>
@@ -44,7 +44,7 @@ export function vacancyCard(vacancy, { compact = false, index = 0 } = {}) {
     </article>`;
 }
 
-export function eventCard(event, index = 0) {
+export function eventCard(event, index = 0, { registeredView = false } = {}) {
   const formatClass = event.format === 'Онлайн' ? 'green' : event.format === 'Гибрид' ? 'blue-solid' : 'red';
 
   // Same manage controls as the admin panel's own event list — shown right on
@@ -58,6 +58,19 @@ export function eventCard(event, index = 0) {
       <button class="btn btn-ghost btn-small" type="button" data-action="delete-admin-event" data-id="${escapeHtml(event.id)}">${icons.trash}<span>Удалить</span></button>
     </div>`
     : '';
+  const displayDate = event.date || (event.startsAt
+    ? new Date(event.startsAt).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+    : '');
+  const registrationNotice = event.registrationStatus === 'reserve'
+    ? `<p class="event-registration-status is-reserve">${icons.clock}<span>Вы в резерве${event.reservePosition ? ` · позиция ${event.reservePosition}` : ''}</span></p>`
+    : event.registrationStatus === 'confirmed'
+      ? `<p class="event-registration-status is-confirmed">${icons.check}<span>Вы зарегистрированы</span></p>`
+      : '';
+  const registrationButton = event.startsAt
+    ? `<button class="btn ${event.isRegistered ? 'btn-registered' : 'btn-primary'} btn-small" type="button" data-action="toggle-event-registration" data-id="${escapeHtml(event.id)}" data-registered="${event.isRegistered ? 'true' : 'false'}">
+        ${event.isRegistered ? icons.trash : icons.plus}<span>${event.isRegistered ? 'Отказаться от участия' : 'Зарегистрироваться'}</span>
+      </button>`
+    : `<button class="btn btn-ghost btn-small" type="button" disabled><span>Дата уточняется</span></button>`;
 
   return `
     <article class="event-card" style="--i:${index}">
@@ -68,13 +81,17 @@ export function eventCard(event, index = 0) {
       <div class="event-body">
         <p class="event-lead">${escapeHtml(event.lead)}</p>
         <h2>${escapeHtml(event.title)}</h2>
-        <p class="event-meta">${icons.calendar}${escapeHtml(event.date)}</p>
+        <p class="event-meta">${icons.calendar}${escapeHtml(displayDate)}</p>
         <p class="event-meta">${icons.mapPin}${escapeHtml(event.place)}</p>
         <p class="card-copy">${escapeHtml(event.description)}</p>
+        ${registrationNotice}
         ${adminControls}
         <div class="event-actions">
           ${badge(event.deadline, 'red-soft deadline')}
-          <button class="btn btn-dark btn-small" type="button" data-action="open-link" data-url="${escapeHtml(event.url)}">Подробнее ${icons.arrowUpRight}</button>
+          <div class="event-action-buttons">
+            ${registrationButton}
+            ${event.url ? `<button class="icon-btn event-link-button" type="button" data-action="open-link" data-url="${escapeHtml(event.url)}" aria-label="Подробнее о мероприятии">${icons.arrowUpRight}</button>` : ''}
+          </div>
         </div>
       </div>
     </article>`;

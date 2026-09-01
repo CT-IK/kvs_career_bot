@@ -131,6 +131,13 @@ kvs_career_bot/
 
 - `BOT_TOKEN` - токен Telegram-бота;
 - `ADMIN_IDS` - список Telegram ID администраторов через запятую;
+- `MAX_BOT_TOKEN` - токен бота MAX; используется для проверки initData и всех уведомлений о мероприятиях;
+- `MAX_ADMIN_IDS` - список MAX ID администраторов миниаппа через запятую;
+- `MAX_REQUIRED_CHANNEL_ID` - числовой ID обязательного канала MAX;
+- `MAX_REQUIRED_CHANNEL_URL` - публичная ссылка на обязательный канал MAX;
+- `MAX_API_BASE_URL` - адрес Bot API MAX (по умолчанию `https://platform-api2.max.ru`);
+
+Для проверки подписки MAX-бот должен быть назначен администратором канала. Без этого API MAX не возвращает список участников. После настройки укажите ID канала, ссылку, токен и MAX ID администраторов в `.env`, затем перезапустите сервис.
 - `DB_HOST` - хост PostgreSQL;
 - `DB_PORT` - порт PostgreSQL;
 - `DB_NAME` - имя базы;
@@ -158,6 +165,10 @@ kvs_career_bot/
 - `VACANCY_SYNC_HOUR` - час запуска синхронизации;
 - `VACANCY_SYNC_MINUTE` - минута запуска синхронизации;
 - `VACANCY_SYNC_TIMEZONE` - timezone для расписания, по умолчанию `Europe/Moscow`.
+- `VACANCY_SYNC_ALLOW_EMPTY` - разрешение применить пустой снимок; рекомендуется оставлять `false`, чтобы ошибка источника не удалила текущие вакансии.
+- `MINIAPP_PUBLIC_URL` - публичный HTTPS-адрес Mini App, который открывается из уведомлений;
+- `EVENT_REMINDERS_ENABLED` - включает напоминания о добавленных мероприятиях;
+- `EVENT_REMINDER_POLL_SECONDS` - интервал проверки напоминаний, минимум 30 секунд.
 
 ## Локальный запуск
 
@@ -193,11 +204,21 @@ AUTO_RESTART_ENABLED=true
 AUTO_RESTART_DELAY_SECONDS=5
 SEED_DEMO_DATA=false
 
+MINIAPP_PUBLIC_URL=https://example.com/miniapp
+EVENT_REMINDERS_ENABLED=true
+EVENT_REMINDER_POLL_SECONDS=60
+
 VACANCY_SYNC_SCHEDULE_ENABLED=true
-VACANCY_SYNC_HOUR=5
-VACANCY_SYNC_MINUTE=30
+VACANCY_SYNC_HOUR=0
+VACANCY_SYNC_MINUTE=0
 VACANCY_SYNC_TIMEZONE=Europe/Moscow
+VACANCY_SYNC_ALLOW_EMPTY=false
 ```
+
+Mini App читает вакансии из PostgreSQL и поэтому не ждёт Google Sheets при
+первом открытии. В 00:00 источник загружается в фоне и применяется одной
+транзакцией: исчезнувшие вакансии удаляются, новые добавляются, изменённые
+обновляются. При ошибке или пустом ответе предыдущий список остаётся доступен.
 
 ### 3. Создайте базу данных
 
